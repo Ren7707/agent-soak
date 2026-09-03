@@ -1,116 +1,192 @@
 #!/usr/bin/env node
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+import { loadAdapter } from './adapters/loader.js';
+import { BrowserSession } from './browser/session.js';
+import { classifyFailure } from './core/failures.js';
+import { EXIT_CODES, exitCodeForResult } from './core/exit-codes.js';
+import { runSchedule, parseDuration } from './core/scheduler.js';
 import { loadManifest, manifestPathFrom, resolveBaseUrl } from './manifest.js';
-import { ResourceRegistry, createRunId } from './resources.js';
-import { runSchedule, parseDuration } from './scheduler.js';
-import { writeReports } from './reporters.js';
+import { ResourceRegistry, createRunId } from './resources/registry.js';
+import { writePreflight, writeReports } from './reporters/index.js';
 
-const args = parseArgs(process.argv.slice(2));
-const cwd = process.cwd();
-const manifestPath = manifestPathFrom(cwd, args.manifest);
-const json = args.json === true;
+const HELP = `agent-soak <command> [options]
 
-async function main() {
-try {
-  const manifest = await loadManifest(manifestPath);
-  if (args.command === 'inspect') return output({ ok: true, command: 'inspect', manifest }, json);
-  if (args.command === 'discover') return output({ ok: true, command: 'discover', capabilities: manifest.capabilities, scenarios: manifest.scenarios }, json);
-  if (args.command === 'validate') return output(validate(manifest, args), json);
-  if (args.command === 'run') return output(await run(manifest, args), json);
-  if (args.command === 'cleanup') return output(await cleanup(manifest, args), json);
-  if (args.command === 'residue') return output(await residue(args), json);
-  throw new Error(`command_unknown: ${args.command || '<empty>'}`);
-} catch (error) {
-  output({ ok: false, error: error.message, code: error.message.split(':')[0] }, json);
-  process.exitCode = 2;
+Commands:
+  inspect                 Read and print a manifest without contacting a target
+  discover                Ask the adapter for capabilities and live metadata
+  validate                Run configuration and service preflight checks
+  run                     Run scenarios by round count or duration
+  cleanup                 Retry cleanup for a previous run
+  residue                 Find pending cleanup records in an artifact directory
+
+Options:
+  --manifest <path>       Manifest path (default: platform.manifest.json)
+  --mode <readonly|write> Run mode (default: readonly)
+  --rounds <number>       Number of rounds
+  --duration <value>      Duration such as 30s, 10m, or 2h
+  --interval <value>      Delay between rounds
+  --run-id <id>           Reuse a safe run identifier for recovery
+  --artifacts <path>      Artifact directory (default: artifacts)
+  --allow-writes          Explicitly authorize write or cleanup operations
+  --browser               Include browser-capable scenarios
+  --supervise             Show the browser and install the supervision marker
+  --dry-run               Preview cleanup without deleting resources
+  --json                  Emit one-line machine-readable JSON
+  --help                  Show this help
+`;
+
+export async function main(argv = process.argv.slice(2)) {
+  const wantsJson = argv.includes('--json');
+  let args;
+  try {
+    args = parseArgs(argv);
+    if (args.help || !args.command) { output({ ok: true, command: 'help', usage: HELP }, wantsJson); return EXIT_CODES.success; }
+    const manifestPath = manifestPathFrom(process.cwd(), String(args.manifest || 'platform.manifest.json'));
+    const manifest = await loadManifest(manifestPath);
+    if (args.command === 'inspect') { output({ ok: true, command: 'inspect', manifest }, wantsJson); return EXIT_CODES.success; }
+    if (args.command === 'residue') { output(await residue(args), wantsJson); return EXIT_CODES.success; }
+    const adapter = await loadAdapter(manifestPath, manifest);
+    if (args.command === 'discover') return finish(await discover(manifest, adapter), wantsJson);
+    if (args.command === 'validate') return finish(await validate(manifest, adapter, args), wantsJson);
+    if (args.command === 'run') return finish(await run(manifest, adapter, args), wantsJson);
+    if (args.command === 'cleanup') return finish(await cleanup(manifest, adapter, args), wantsJson);
+    throw new Error(`command_unknown: ${args.command}`);
+  } catch (error) {
+    output({ ok: false, code: codeFromError(error), error: error instanceof Error ? error.message : String(error) }, wantsJson);
+    return EXIT_CODES.input;
+  }
 }
-}
 
-await main();
-
-function validate(manifest, args) {
-  const mode = args.mode || 'readonly';
-  if (!['readonly', 'write'].includes(mode)) throw new Error(`mode_invalid: ${mode}`);
-  const writeScenarios = manifest.scenarios.filter((item) => item.mode === 'write');
-  if (mode === 'write') assertWriteAllowed(manifest, args);
-  return { ok: true, command: 'validate', mode, writeScenarios: writeScenarios.map((item) => item.id) };
-}
-
-async function run(manifest, args) {
-  const mode = args.mode || 'readonly';
-  validate(manifest, args);
+async function discover(manifest, adapter) {
   const baseUrl = resolveBaseUrl(manifest);
-  const runId = args.runId || createRunId();
-  const artifactDir = path.resolve(args.artifacts || 'artifacts');
-  const registry = new ResourceRegistry({ artifactDir, runId, prefix: `${manifest.platform.test_data_prefix}${runId}-` });
-  const selected = manifest.scenarios.filter((scenario) => scenario.mode === 'readonly' || mode === 'write');
+  return { ok: true, command: 'discover', ...(await adapter.discover({ manifest, baseUrl })) };
+}
+
+async function validate(manifest, adapter, args) {
+  const mode = modeFrom(args);
+  if (mode === 'write') assertWriteAllowed(manifest, args);
+  const baseUrl = resolveBaseUrl(manifest);
+  const preflight = await runPreflight(adapter, manifest, baseUrl);
+  return { ok: preflight.ok, command: 'validate', mode, preflight, writeScenarios: manifest.scenarios.filter((item) => item.mode === 'write').map((item) => item.id) };
+}
+
+async function run(manifest, adapter, args) {
+  const mode = modeFrom(args);
+  if (mode === 'write') assertWriteAllowed(manifest, args);
+  const target = scheduleTarget(args);
+  const baseUrl = resolveBaseUrl(manifest);
+  const runId = safeRunId(args.runId || createRunId());
+  const artifactDir = path.resolve(String(args.artifacts || 'artifacts'));
+  const prefix = `${manifest.platform.test_data_prefix}${runId}-`;
+  const registry = new ResourceRegistry({ artifactDir, runId, prefix });
+  const preflight = await runPreflight(adapter, manifest, baseUrl);
+  await writePreflight({ artifactDir, runId, result: preflight });
+  if (!preflight.ok) return { ok: false, command: 'run', status: 'preflight_failed', runId, mode, rounds: 0, cancelled: false, scenarios: [], skipped: [], cleanup: { ok: true, results: [], pending: [] }, preflight };
+
+  const declared = new Map(manifest.scenarios.map((scenario) => [scenario.id, scenario]));
+  const skipped = [];
+  const selected = [];
+  for (const scenario of manifest.scenarios) {
+    const implementation = adapter.scenarios.find((item) => item.id === scenario.id);
+    if (scenario.mode === 'write' && mode === 'readonly') { skipped.push({ id: scenario.id, reason: 'write_mode_not_authorized' }); continue; }
+    if ((scenario.capabilities || []).includes('browser') && args.browser !== true) { skipped.push({ id: scenario.id, reason: 'browser_not_requested' }); continue; }
+    selected.push({ manifest: scenario, implementation });
+  }
+
+  let browser;
+  const browserNeeded = selected.some(({ manifest: scenario }) => (scenario.capabilities || []).includes('browser'));
+  if (browserNeeded) {
+    browser = new BrowserSession({ artifactDir, runId, supervised: args.supervise === true });
+    try { await browser.start(); }
+    catch (error) {
+      const failed = { id: 'browser.lifecycle', round: 0, status: 'failed', ok: false, durationMs: 0, category: classifyFailure(error), error: error instanceof Error ? error.message : String(error) };
+      const result = { ok: false, command: 'run', status: 'browser_start_failed', runId, mode, rounds: 0, cancelled: false, scenarios: [failed], skipped, audit: [], cleanup: { ok: true, results: [], pending: [] }, preflight, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString() };
+      await writeReports({ artifactDir, result });
+      return result;
+    }
+  }
+
   const scenarios = [];
   const controller = new AbortController();
-  process.once('SIGINT', () => controller.abort());
-  const schedule = await runSchedule({ rounds: args.rounds ? Number(args.rounds) : undefined, durationMs: args.duration ? parseDuration(args.duration) : undefined, signal: controller.signal, onRound: async (round) => {
-    for (const scenario of selected) {
-      const started = Date.now();
-      try {
-        const result = await executeScenario(scenario, { baseUrl, runId, round, registry });
-        scenarios.push({ id: scenario.id, round, ok: result.ok !== false, durationMs: Date.now() - started, details: result });
-      } catch (error) { scenarios.push({ id: scenario.id, round, ok: false, durationMs: Date.now() - started, error: error.message }); }
-    }
-  }});
-  const cleanup = await registry.cleanup(async (resource) => {
-    const response = await fetch(`${baseUrl}/items/${encodeURIComponent(resource.id)}`, { method: 'DELETE' });
-    if (!response.ok) throw new Error(`cleanup_http_${response.status}`);
-  });
-  const result = { ok: scenarios.every((item) => item.ok) && cleanup.ok && !schedule.cancelled, command: 'run', runId, mode, baseUrl, rounds: schedule.completed, cancelled: schedule.cancelled, scenarios, cleanup, startedAt: new Date(Date.now() - schedule.durationMs).toISOString(), finishedAt: new Date().toISOString() };
-  await writeReports({ artifactDir, runId, result });
+  const onInterrupt = () => controller.abort();
+  process.once('SIGINT', onInterrupt);
+  let schedule;
+  try {
+    schedule = await runSchedule({ ...target, intervalMs: args.interval ? parseDuration(String(args.interval)) : 0, signal: controller.signal, onRound: async (round) => {
+      for (const entry of selected) {
+        if (controller.signal.aborted) break;
+        const started = Date.now();
+        try {
+          const details = await entry.implementation.run({ baseUrl, runId, round, signal: controller.signal, supervised: args.supervise === true, browser, registry, manifest, scenario: entry.manifest });
+          const ok = details?.ok !== false;
+          scenarios.push({ id: entry.implementation.id, round, status: ok ? 'passed' : 'failed', ok, durationMs: Date.now() - started, category: ok ? undefined : classifyFailure(new Error(details?.error || 'scenario_failed')), error: ok ? undefined : details?.error, details });
+        } catch (error) {
+          scenarios.push({ id: entry.implementation.id, round, status: 'failed', ok: false, durationMs: Date.now() - started, category: classifyFailure(error), error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      await registry.persist();
+    }});
+  } finally {
+    process.removeListener('SIGINT', onInterrupt);
+  }
+
+  const cleanupResult = await registry.cleanup((resource) => adapter.deleteResource(resource, { baseUrl, runId, manifest }));
+  const result = { ok: scenarios.every((item) => item.ok) && cleanupResult.ok && !schedule.cancelled, command: 'run', status: 'completed', runId, mode, rounds: schedule.completed, cancelled: schedule.cancelled, scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, startedAt: new Date(Date.now() - schedule.durationMs).toISOString(), finishedAt: new Date().toISOString() };
+  await browser?.close();
+  await writeReports({ artifactDir, result });
   return result;
 }
 
-async function cleanup(manifest, args) {
-  const runId = args.runId;
-  if (!runId) throw new Error('run_id_required');
-  const artifactDir = path.resolve(args.artifacts || 'artifacts');
-  const file = path.join(artifactDir, runId, 'resources.json');
-  const resources = JSON.parse(await (await import('node:fs/promises')).readFile(file, 'utf8'));
+async function cleanup(manifest, adapter, args) {
+  const runId = safeRunId(args.runId);
+  const dryRun = args.dryRun === true;
+  if (!dryRun) assertWriteAllowed(manifest, args);
+  const artifactDir = path.resolve(String(args.artifacts || 'artifacts'));
   const baseUrl = resolveBaseUrl(manifest);
-  const registry = new ResourceRegistry({ artifactDir, runId, prefix: `${manifest.platform.test_data_prefix}${runId}-`});
-  for (const resource of resources) registry.resources.push(resource);
-  return registry.cleanup(async (resource) => {
-    const response = await fetch(`${baseUrl}/items/${encodeURIComponent(resource.id)}`, { method: 'DELETE' });
-    if (!response.ok) throw new Error(`cleanup_http_${response.status}`);
-  }, { dryRun: args.dryRun === true });
+  const registry = await ResourceRegistry.restore(artifactDir, runId, `${manifest.platform.test_data_prefix}${runId}-`);
+  const result = await registry.cleanup((resource) => adapter.deleteResource(resource, { baseUrl, runId, manifest }), { dryRun });
+  return { ...result, command: 'cleanup', runId, dryRun };
 }
 
 async function residue(args) {
-  const fs = await import('node:fs/promises');
-  const artifactDir = path.resolve(args.artifacts || 'artifacts');
+  const artifactDir = path.resolve(String(args.artifacts || 'artifacts'));
   const entries = await fs.readdir(artifactDir, { withFileTypes: true }).catch(() => []);
   const pending = [];
-  for (const entry of entries) if (entry.isDirectory()) { const file = path.join(artifactDir, entry.name, 'cleanup-pending.json'); if (await fs.access(file).then(() => true).catch(() => false)) pending.push(file); }
-  return { ok: pending.length === 0, pending };
-}
-
-async function executeScenario(scenario, context) {
-  if (scenario.id === 'health') { const response = await fetch(`${context.baseUrl}/health`); if (!response.ok) throw new Error(`health_http_${response.status}`); return { ok: true }; }
-  if (scenario.id === 'list-items') { const response = await fetch(`${context.baseUrl}/items`); if (!response.ok) throw new Error(`items_http_${response.status}`); return { ok: true, count: (await response.json()).items.length }; }
-  if (scenario.id === 'create-delete-item') {
-    const name = `${context.registry.prefix}item-${context.round}`;
-    const create = await fetch(`${context.baseUrl}/items`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
-    if (!create.ok) throw new Error(`create_http_${create.status}`);
-    const item = await create.json();
-    context.registry.register({ id: item.id, type: 'item', name });
-    return { ok: true, id: item.id };
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const file = path.join(artifactDir, entry.name, 'cleanup-pending.json');
+    if (await fs.access(file).then(() => true).catch(() => false)) pending.push(file);
   }
-  throw new Error(`scenario_not_implemented: ${scenario.id}`);
+  return { ok: pending.length === 0, command: 'residue', pending };
 }
 
-function assertWriteAllowed(manifest, args) {
-  if (manifest.platform.production === true) throw new Error('write_rejected_production_target');
-  if (args.allowWrites !== true || process.env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`);
+async function runPreflight(adapter, manifest, baseUrl) {
+  try {
+    const result = await adapter.preflight({ manifest, baseUrl });
+    return result && typeof result === 'object' ? { ok: result.ok !== false, ...result } : { ok: true };
+  } catch (error) {
+    return { ok: false, issues: [{ category: classifyFailure(error), error: error instanceof Error ? error.message : String(error) }] };
+  }
 }
-function parseArgs(values) { const out = { command: values[0] }; for (let index = 1; index < values.length; index += 1) { const value = values[index]; if (value === '--json' || value === '--allow-writes') out[toCamel(value.slice(2))] = true; else if (value.startsWith('--')) out[toCamel(value.slice(2))] = values[++index]; } return out; }
+
+function scheduleTarget(args) {
+  const hasRounds = args.rounds !== undefined;
+  const hasDuration = args.duration !== undefined;
+  if (hasRounds === hasDuration) throw new Error('schedule_requires_exactly_one_target');
+  if (hasRounds) { const rounds = Number(args.rounds); if (!Number.isInteger(rounds) || rounds < 1) throw new Error('schedule_invalid_rounds'); return { rounds }; }
+  return { durationMs: parseDuration(String(args.duration)) };
+}
+function modeFrom(args) { const mode = String(args.mode || 'readonly'); if (mode !== 'readonly' && mode !== 'write') throw new Error(`mode_invalid: ${mode}`); return mode; }
+function assertWriteAllowed(manifest, args) { if (manifest.platform.production === true) throw new Error('write_rejected_production_target'); if (args.allowWrites !== true || process.env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`); }
+function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
+function codeFromError(error) { const message = error instanceof Error ? error.message : String(error); return message.split(':')[0]; }
+function finish(result, json) { output(result, json); if (result.ok !== false) return EXIT_CODES.success; if (result.command === 'validate' || result.status === 'preflight_failed') return EXIT_CODES.preflight; return exitCodeForResult(result); }
+function parseArgs(values) { const out = { command: undefined }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'artifacts']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) throw new Error(`argument_unknown: ${token}`); const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = toCamel(rawName); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
 function toCamel(value) { return value.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); }
-function output(value, asJson) { if (asJson) console.log(JSON.stringify(value)); else console.log(JSON.stringify(value, null, 2)); }
+function output(value, json) { console.log(json ? JSON.stringify(value) : JSON.stringify(value, null, 2)); }
 
-
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
 

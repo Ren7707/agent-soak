@@ -40,6 +40,14 @@
         "items"
       ],
       "cleanup": "delete-created"
+    },
+    {
+      "id": "browser-home",
+      "title": "Open the demo home page",
+      "mode": "readonly",
+      "capabilities": [
+        "browser"
+      ]
     }
   ],
   "adapter": "./examples/demo-platform/adapter.js"
