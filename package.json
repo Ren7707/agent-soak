@@ -1,0 +1,30 @@
+{
+  "name": "agent-soak",
+  "version": "0.1.0",
+  "description": "AI-ready universal soak testing for CLI tools and web agents",
+  "type": "module",
+  "bin": {
+    "agent-soak": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "demo": "node examples/demo-platform/server.js",
+    "inspect": "node src/cli.js inspect",
+    "validate": "node src/cli.js validate",
+    "run": "node src/cli.js run",
+    "cleanup": "node src/cli.js cleanup",
+    "residue": "node src/cli.js residue"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

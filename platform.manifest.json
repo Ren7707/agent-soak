@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "platform": {
+    "id": "demo-platform",
+    "name": "Public Demo Platform",
+    "base_url_env": "DEMO_PLATFORM_BASE_URL",
+    "health_path": "/health",
+    "write_gate_env": "ALLOW_TEST_WRITES",
+    "test_data_prefix": "SOAK_",
+    "require_cleanup": true,
+    "production": false
+  },
+  "capabilities": [
+    "health",
+    "items",
+    "browser"
+  ],
+  "scenarios": [
+    {
+      "id": "health",
+      "title": "Health check",
+      "mode": "readonly",
+      "capabilities": [
+        "health"
+      ]
+    },
+    {
+      "id": "list-items",
+      "title": "List items",
+      "mode": "readonly",
+      "capabilities": [
+        "items"
+      ]
+    },
+    {
+      "id": "create-delete-item",
+      "title": "Create and delete isolated item",
+      "mode": "write",
+      "capabilities": [
+        "items"
+      ],
+      "cleanup": "delete-created"
+    }
+  ],
+  "adapter": "./examples/demo-platform/adapter.js"
+}
