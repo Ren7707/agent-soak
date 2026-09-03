@@ -7,11 +7,13 @@ import { initAdapter } from './adapters/init.js';
 import { loadAdapter } from './adapters/loader.js';
 import { BrowserSession } from './browser/session.js';
 import { classifyFailure } from './core/failures.js';
-import { EXIT_CODES, exitCodeForResult } from './core/exit-codes.js';
+import { ERROR_CODES, EXIT_CODES, exitCodeForResult, resultCode } from './core/exit-codes.js';
 import { runSchedule, parseDuration } from './core/scheduler.js';
 import { loadManifest, manifestPathFrom, resolveBaseUrl } from './manifest.js';
 import { ResourceRegistry, createRunId } from './resources/registry.js';
 import { writePreflight, writeReports } from './reporters/index.js';
+
+const PACKAGE_VERSION = JSON.parse(await fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8')).version;
 
 const HELP = `agent-soak <command> [options]
 
@@ -23,6 +25,7 @@ Commands:
   run                     Run scenarios by round count or duration
   cleanup                 Retry cleanup for a previous run
   residue                 Find pending cleanup records in an artifact directory
+  doctor                  Check runtime, manifest, adapter, and local prerequisites
 
 Options:
   --manifest <path>       Manifest path (default: platform.manifest.json)
@@ -38,6 +41,7 @@ Options:
   --dry-run               Preview cleanup without deleting resources
   --remote                Include adapter-backed residue scanning
   --force                 Overwrite files created by init-adapter
+  --version               Show the package version
   --json                  Emit one-line machine-readable JSON
   --help                  Show this help
 `;
@@ -47,6 +51,7 @@ export async function main(argv = process.argv.slice(2)) {
   let args;
   try {
     args = parseArgs(argv);
+    if (args.version) { output({ ok: true, command: 'version', version: PACKAGE_VERSION }, wantsJson); return EXIT_CODES.success; }
     if (args.help || !args.command) { output({ ok: true, command: 'help', usage: HELP }, wantsJson); return EXIT_CODES.success; }
     const manifestPath = manifestPathFrom(process.cwd(), String(args.manifest || 'platform.manifest.json'));
     if (args.command === 'init-adapter') return finish(await initAdapter({ cwd: process.cwd(), id: args.positionals[0], force: args.force === true }), wantsJson);
@@ -62,13 +67,14 @@ export async function main(argv = process.argv.slice(2)) {
       return finish(await residue(args), wantsJson);
     }
     const adapter = await loadAdapter(manifestPath, manifest);
+    if (args.command === 'doctor') return finish(await doctor(manifestPath, manifest, adapter, args), wantsJson);
     if (args.command === 'discover') return finish(await discover(manifest, adapter), wantsJson);
     if (args.command === 'validate') return finish(await validate(manifest, adapter, args), wantsJson);
     if (args.command === 'run') return finish(await run(manifest, adapter, args), wantsJson);
     if (args.command === 'cleanup') return finish(await cleanup(manifest, adapter, args), wantsJson);
     throw new Error(`command_unknown: ${args.command}`);
   } catch (error) {
-    output({ ok: false, code: codeFromError(error), error: error instanceof Error ? error.message : String(error) }, wantsJson);
+    output({ ok: false, code: ERROR_CODES.INPUT_INVALID, error: error instanceof Error ? error.message : String(error), detail_code: codeFromError(error) }, wantsJson);
     return EXIT_CODES.input;
   }
 }
@@ -160,6 +166,15 @@ async function run(manifest, adapter, args) {
   const result = { ok: scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, command: 'run', status: runtimeError ? 'runner_failed' : 'completed', runId, mode, rounds: schedule.completed, cancelled, scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, startedAt, finishedAt: new Date().toISOString() };
   await writeReports({ artifactDir, result });
   return result;
+}
+
+async function doctor(manifestPath, manifest, adapter, args) {
+  const checks = [{ id: 'node-version', ok: Number(process.versions.node.split('.')[0]) >= 20, detail: process.version, expected: '>=20' }, { id: 'manifest', ok: true, detail: manifestPath }, { id: 'adapter', ok: Boolean(adapter), detail: manifest.adapter }, { id: 'base-url-env', ok: Boolean(process.env[manifest.platform.base_url_env]), detail: manifest.platform.base_url_env }];
+  if (args.browser) {
+    try { await import('playwright'); checks.push({ id: 'playwright', ok: true }); }
+    catch (error) { checks.push({ id: 'playwright', ok: false, detail: error instanceof Error ? error.message : String(error) }); }
+  }
+  return { ok: checks.every((check) => check.ok), command: 'doctor', checks };
 }
 
 async function runScenario(entry, context) {
@@ -255,10 +270,11 @@ function modeFrom(args) { const mode = String(args.mode || 'readonly'); if (mode
 function assertWriteAllowed(manifest, args) { if (manifest.platform.production === true) throw new Error('write_rejected_production_target'); if (args.allowWrites !== true || process.env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`); }
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
 function codeFromError(error) { const message = error instanceof Error ? error.message : String(error); return message.split(':')[0]; }
-function finish(result, json) { output(result, json); if (result.ok !== false) return EXIT_CODES.success; if (result.command === 'validate' || result.command === 'discover' || result.status === 'preflight_failed') return EXIT_CODES.preflight; if (result.command === 'cleanup' || result.command === 'residue') return EXIT_CODES.cleanup; return exitCodeForResult(result); }
-function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'artifacts', 'prefix']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = toCamel(rawName); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
+function finish(result, json) { const code = resultCode(result); output({ ...result, ...(code ? { code } : {}) }, json); if (result.ok !== false) return EXIT_CODES.success; if (result.command === 'validate' || result.command === 'discover' || result.command === 'doctor' || result.status === 'preflight_failed') return EXIT_CODES.preflight; if (result.command === 'cleanup' || result.command === 'residue') return EXIT_CODES.cleanup; return exitCodeForResult(result); }
+function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force', 'version']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'artifacts', 'prefix']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = toCamel(rawName); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
 function toCamel(value) { return value.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); }
 function output(value, json) { console.log(json ? JSON.stringify(value) : JSON.stringify(value, null, 2)); }
+
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
 

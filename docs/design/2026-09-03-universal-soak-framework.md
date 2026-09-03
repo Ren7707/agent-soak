@@ -23,6 +23,7 @@ internal API contracts.
 - Run-scoped resource registry, cleanup, pending recovery, and residue scan.
 - Preflight checks for configuration and service health.
 - JSON, JUnit, Markdown, and HTML reports.
+- Stable machine-readable result codes and a local environment doctor command.
 - Playwright Chromium support, including optional supervised display.
 - GitHub Actions workflow for unit and demo smoke tests.
 
@@ -78,6 +79,7 @@ agent-soak run --rounds 3 --mode readonly
 agent-soak run --duration 10m --mode write --allow-writes
 agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
+agent-soak doctor --json
 ```
 
 Scenario declarations can include `timeout_ms` and `retries`. The runner passes
@@ -95,3 +97,4 @@ The test suite covers manifest validation, mode and write-gate handling,
 resource ownership and cleanup recovery, scheduler cancellation, report
 generation, and a local demo end-to-end run. CI runs the same checks on Linux;
 the CLI uses Node APIs and PowerShell-compatible scripts for Windows users.
+CI tests Node.js 20, 22, and 24 and uses `npm ci` for reproducible installs.

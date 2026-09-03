@@ -15,6 +15,21 @@ test('CLI inspect returns machine-readable manifest', async () => {
   const result = JSON.parse(output); assert.equal(result.ok, true); assert.equal(result.manifest.platform.id, 'demo-platform');
 });
 
+test('CLI exposes the package version as JSON', async () => {
+  const result = await runCli(['--version', '--json'], { cwd: fileURLToPath(new URL('..', import.meta.url)) });
+  assert.equal(result.code, 0);
+  assert.equal(JSON.parse(result.stdout).version, '0.1.0');
+});
+
+test('CLI doctor reports missing environment prerequisites', async () => {
+  const cwd = fileURLToPath(new URL('..', import.meta.url));
+  const result = await runCli(['doctor', '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: '' } });
+  const body = JSON.parse(result.stdout);
+  assert.equal(result.code, 3);
+  assert.equal(body.code, 'PREFLIGHT_FAILED');
+  assert.equal(body.checks.find((check) => check.id === 'base-url-env').ok, false);
+});
+
 test('CLI init-adapter creates a starter adapter', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-init-'));
   try {

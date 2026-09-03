@@ -15,7 +15,11 @@ export function createAdapter({ manifest, baseUrl, fetchImpl, registry }) {
         async run(context) { return { ok: true, details: context.runId }; }
       }
     ],
-    async cleanup() { return { ok: true }; }
+    async deleteResource(resource, context) {
+      // 只删除当前运行登记且匹配测试前缀的资源。
+      throw new Error(`cleanup_unsupported_resource: ${resource.type}`);
+    },
+    async scanResidue() { return []; }
   };
 }
 ```

@@ -24,6 +24,8 @@ node src/cli.js run --rounds 3 --mode readonly --json
 $env:ALLOW_TEST_WRITES = "true"
 node src/cli.js run --rounds 2 --mode write --allow-writes --json
 node src/cli.js residue --json
+node src/cli.js doctor --json
+node src/cli.js --version --json
 ```
 
 测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML 和 HTML。
@@ -88,6 +90,11 @@ agent-soak residue --json
 ```
 
 所有命令都支持 `--json`，便于 Agent 或 CI 读取结构化结果。
+失败结果包含稳定的 `code` 字段，例如 `SCENARIO_FAILED`、
+`PREFLIGHT_FAILED` 和 `CLEANUP_FAILED`。
+
+`doctor` 用于检查 Node.js、Manifest、Adapter 和基础环境变量；需要浏览器时
+可增加 `--browser` 检查 Playwright 是否可加载。
 
 ## 安全边界
 
@@ -112,6 +119,13 @@ npm test
 ```
 
 当前项目使用 Node.js 20 或更高版本。
+
+CI 会在 Node.js 20、22 和 24 上执行测试。提交前建议运行：
+
+```powershell
+node src/cli.js doctor --json
+npm test
+```
 
 ## 许可证
 
