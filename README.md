@@ -21,6 +21,10 @@ node src/cli.js run --rounds 2 --mode write --allow-writes --json
 node src/cli.js residue --json
 ```
 
+Scenario entries may set `timeout_ms` and `retries` (0-10). A timeout aborts
+the scenario signal; a retry is attempted only when the scenario fails.
+Reports record the final status and number of attempts.
+
 Reports are written under `artifacts/<run-id>/`. They include JSON, Markdown,
 JUnit XML, and HTML. Write runs create only run-prefixed Demo items and clean
 them before the run finishes.
@@ -35,6 +39,9 @@ adapter, not in the core scheduler or resource registry.
 
 See `templates/adapter.md` for the adapter shape and
 `docs/design/2026-09-03-universal-soak-framework.md` for the design boundary.
+
+Use `node src/cli.js init-adapter <id>` to create an isolated YAML manifest,
+adapter starter, environment example, and platform README under `adapters/`.
 
 ## Safety
 

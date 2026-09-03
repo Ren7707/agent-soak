@@ -11,6 +11,7 @@ export class BrowserSession {
     this.context = null;
     this._page = null;
     this.audit = [];
+    this.screenshotIndex = 0;
   }
 
   async start() {
@@ -44,7 +45,8 @@ export class BrowserSession {
   async screenshot(name = 'page') {
     const dir = path.join(this.artifactDir, this.runId, 'browser');
     await fs.mkdir(dir, { recursive: true });
-    const file = path.join(dir, `${safeFileName(name)}.png`);
+    const index = String(++this.screenshotIndex).padStart(3, '0');
+    const file = path.join(dir, `${index}-${safeFileName(name)}.png`);
     await this.page.screenshot({ path: file, fullPage: true });
     return file;
   }
@@ -64,7 +66,7 @@ export class BrowserSession {
       return value;
     } catch (error) {
       entry.status = 'failed';
-      entry.actual = error.message;
+      entry.actual = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
       entry.durationMs = Date.now() - started;

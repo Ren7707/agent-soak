@@ -19,6 +19,7 @@ internal API contracts.
 - Local demo platform with mock HTTP API and browser UI.
 - Read-only and explicitly authorized write modes.
 - Run by duration or round count, with safe cancellation.
+- Per-scenario timeouts and bounded retries, recorded in results.
 - Run-scoped resource registry, cleanup, pending recovery, and residue scan.
 - Preflight checks for configuration and service health.
 - JSON, JUnit, Markdown, and HTML reports.
@@ -78,6 +79,11 @@ agent-soak run --duration 10m --mode write --allow-writes
 agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
 ```
+
+Scenario declarations can include `timeout_ms` and `retries`. The runner passes
+an abort signal to adapters, aborts timed-out attempts, and records `attempts`
+for each result. A run with no selected scenarios fails instead of silently
+reporting success.
 
 Commands return stable non-zero exit codes for invalid input, preflight
 failure, scenario failure, cancellation, and cleanup failure. `--json` emits a

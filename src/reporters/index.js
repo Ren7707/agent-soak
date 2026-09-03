@@ -20,9 +20,9 @@ export async function writeReports({ artifactDir, result }) {
 }
 
 function markdown(result) {
-  const rows = (result.scenarios || []).map((item) => `| ${item.id} | ${item.round} | ${item.status || (item.ok ? 'passed' : 'failed')} | ${item.category || ''} | ${item.durationMs ?? ''} | ${item.error || item.skipReason || ''} |`).join('\n');
+  const rows = (result.scenarios || []).map((item) => `| ${item.id} | ${item.round} | ${item.status || (item.ok ? 'passed' : 'failed')} | ${item.attempts ?? ''} | ${item.category || ''} | ${item.durationMs ?? ''} | ${item.error || item.skipReason || ''} |`).join('\n');
   const skipped = (result.skipped || []).map((item) => `- ${item.id}: ${item.reason}`).join('\n') || '- none';
-  return `# Soak Run ${result.runId}\n\n- Mode: ${result.mode}\n- Rounds: ${result.rounds}\n- Cancelled: ${result.cancelled}\n- Cleanup: ${result.cleanup?.ok ? 'passed' : 'failed'}\n\n## Skipped Scenarios\n\n${skipped}\n\n## Scenario Results\n\n| Scenario | Round | Status | Category | Duration (ms) | Detail |\n|---|---:|---|---|---:|---|\n${rows}\n`;
+  return `# Soak Run ${result.runId}\n\n- Mode: ${result.mode}\n- Rounds: ${result.rounds}\n- Cancelled: ${result.cancelled}\n- Cleanup: ${result.cleanup?.ok ? 'passed' : 'failed'}\n\n## Skipped Scenarios\n\n${skipped}\n\n## Scenario Results\n\n| Scenario | Round | Status | Attempts | Category | Duration (ms) | Detail |\n|---|---:|---|---:|---|---:|---|\n${rows}\n`;
 }
 
 function junit(result) {
@@ -36,8 +36,8 @@ function junit(result) {
 }
 
 function html(result) {
-  const rows = (result.scenarios || []).map((item) => `<tr><td>${escapeHtml(item.id)}</td><td>${item.round}</td><td>${escapeHtml(item.status || (item.ok ? 'passed' : 'failed'))}</td><td>${escapeHtml(item.category || '')}</td><td>${item.durationMs ?? ''} ms</td></tr>`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><title>agent-soak ${escapeHtml(result.runId)}</title><style>body{font:15px system-ui;margin:32px;color:#18202a}table{border-collapse:collapse;width:100%}th,td{padding:10px;border-bottom:1px solid #d9dee5;text-align:left}th{background:#f4f6f8}</style></head><body><h1>Soak Run ${escapeHtml(result.runId)}</h1><p>Mode: ${escapeHtml(result.mode)}; rounds: ${result.rounds}; cleanup: ${result.cleanup?.ok ? 'passed' : 'failed'}</p><table><tr><th>Scenario</th><th>Round</th><th>Status</th><th>Category</th><th>Duration</th></tr>${rows}</table></body></html>`;
+  const rows = (result.scenarios || []).map((item) => `<tr><td>${escapeHtml(item.id)}</td><td>${item.round}</td><td>${escapeHtml(item.status || (item.ok ? 'passed' : 'failed'))}</td><td>${item.attempts ?? ''}</td><td>${escapeHtml(item.category || '')}</td><td>${item.durationMs ?? ''} ms</td></tr>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>agent-soak ${escapeHtml(result.runId)}</title><style>body{font:15px system-ui;margin:32px;color:#18202a}table{border-collapse:collapse;width:100%}th,td{padding:10px;border-bottom:1px solid #d9dee5;text-align:left}th{background:#f4f6f8}</style></head><body><h1>Soak Run ${escapeHtml(result.runId)}</h1><p>Mode: ${escapeHtml(result.mode)}; rounds: ${result.rounds}; cleanup: ${result.cleanup?.ok ? 'passed' : 'failed'}</p><table><tr><th>Scenario</th><th>Round</th><th>Status</th><th>Attempts</th><th>Category</th><th>Duration</th></tr>${rows}</table></body></html>`;
 }
 
 function escapeXml(value) { return String(value).replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[char])); }

@@ -62,7 +62,8 @@ export class ResourceRegistry {
     const pendingFile = path.join(this.artifactDir, this.runId, 'cleanup-pending.json');
     if (pending.length) await fs.writeFile(pendingFile, JSON.stringify(pending, null, 2));
     else await fs.rm(pendingFile, { force: true });
-    return { ok: pending.length === 0, results, pending };
+    const failed = results.some((item) => !item.ok);
+    return { ok: pending.length === 0 && !failed, results, pending };
   }
 
   static async restore(artifactDir, runId, prefix) {

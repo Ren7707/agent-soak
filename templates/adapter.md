@@ -11,6 +11,7 @@ export function createAdapter({ manifest, baseUrl, fetchImpl, registry }) {
       {
         id: 'example-read',
         mode: 'readonly',
+        // timeout_ms and retries are declared in platform.manifest.yaml.
         async run(context) { return { ok: true, details: context.runId }; }
       }
     ],

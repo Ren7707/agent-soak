@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { validateManifest, resolveBaseUrl } from '../src/manifest.js';
+import { loadManifest, manifestPathFrom, validateManifest, resolveBaseUrl } from '../src/manifest.js';
+import { initAdapter } from '../src/adapters/init.js';
 import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
@@ -12,6 +13,9 @@ const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: '
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));
 test('manifest validation rejects undeclared capabilities', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly', capabilities: ['missing'] }] }), /manifest_unknown_capability/));
+test('manifest loader supports YAML and default discovery', async () => { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-yaml-')); try { await fs.writeFile(path.join(dir, 'platform.manifest.yaml'), `schema_version: 1\nadapter: ./adapter.js\nplatform:\n  id: demo\n  base_url_env: BASE\n  write_gate_env: ALLOW\n  test_data_prefix: SOAK_\ncapabilities: [health]\nscenarios:\n  - id: health\n    mode: readonly\n`); const file = manifestPathFrom(dir); assert.equal(path.extname(file), '.yaml'); assert.equal((await loadManifest(file)).platform.id, 'demo'); } finally { await fs.rm(dir, { recursive: true, force: true }); } });
+test('adapter initializer creates isolated starter files', async () => { const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-init-')); try { const result = await initAdapter({ cwd: dir, id: 'sample-platform' }); assert.equal(result.ok, true); assert.deepEqual((await fs.readdir(path.join(dir, 'adapters', 'sample-platform'))).sort(), ['.env.example', 'README.md', 'adapter.js', 'platform.manifest.yaml']); } finally { await fs.rm(dir, { recursive: true, force: true }); } });
+test('manifest validation checks timeout and retry bounds', () => { assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly', timeout_ms: 0 }] }), /manifest_invalid_timeout/); assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly', retries: 11 }] }), /manifest_invalid_retries/); });
 test('base URL validation rejects credentials and non-http schemes', () => { assert.throws(() => resolveBaseUrl(manifest, { BASE: 'ftp://example.test' }), /configuration_invalid_base_url/); assert.throws(() => resolveBaseUrl(manifest, { BASE: 'https://user:pass@example.test' }), /configuration_invalid_base_url/); });
 test('duration parser handles hours and rejects unknown units', () => { assert.equal(parseDuration('2h'), 7200000); assert.throws(() => parseDuration('3days'), /duration_invalid/); });
 test('scheduler requires exactly one target and supports cancellation', async () => { await assert.rejects(runSchedule({ onRound: async () => {} }), /schedule_requires_exactly_one_target/); const controller = new AbortController(); let rounds = 0; const result = await runSchedule({ durationMs: 50, intervalMs: 50, signal: controller.signal, onRound: async () => { rounds += 1; controller.abort(); } }); assert.equal(result.cancelled, true); assert.equal(rounds, 1); });
