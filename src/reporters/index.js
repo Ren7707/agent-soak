@@ -1,9 +1,10 @@
+import { redact } from '../core/redact.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export async function writePreflight({ artifactDir, runId, result }) {
   const dir = path.join(artifactDir, runId); await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, 'preflight.json'), JSON.stringify(result, null, 2));
+  await fs.writeFile(path.join(dir, 'preflight.json'), JSON.stringify(redact(result), null, 2));
 }
 
 export async function writeReports({ artifactDir, result }) {
@@ -39,13 +40,5 @@ function html(result) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>agent-soak ${escapeHtml(result.runId)}</title><style>body{font:15px system-ui;margin:32px;color:#18202a}table{border-collapse:collapse;width:100%}th,td{padding:10px;border-bottom:1px solid #d9dee5;text-align:left}th{background:#f4f6f8}</style></head><body><h1>Soak Run ${escapeHtml(result.runId)}</h1><p>Mode: ${escapeHtml(result.mode)}; rounds: ${result.rounds}; cleanup: ${result.cleanup?.ok ? 'passed' : 'failed'}</p><table><tr><th>Scenario</th><th>Round</th><th>Status</th><th>Category</th><th>Duration</th></tr>${rows}</table></body></html>`;
 }
 
-function redact(value, key = '') {
-  const sensitive = /(authorization|access[_-]?key|api[_-]?key|cookie|credential|password|secret|token)/i;
-  if (sensitive.test(key)) return '[REDACTED]';
-  if (typeof value === 'string') return value.replace(/((?:bearer|basic)\s+)[^\s,;]+/gi, '$1[REDACTED]');
-  if (Array.isArray(value)) return value.map((item) => redact(item));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([childKey, childValue]) => [childKey, redact(childValue, childKey)]));
-  return value;
-}
 function escapeXml(value) { return String(value).replace(/[<>&'"]/g, (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[char])); }
 function escapeHtml(value) { return escapeXml(value); }

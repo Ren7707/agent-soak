@@ -15,7 +15,7 @@ internal API contracts.
 
 ## MVP Scope
 
-- Node.js and TypeScript CLI.
+- Node.js CLI with a JavaScript core and optional Playwright support.
 - Local demo platform with mock HTTP API and browser UI.
 - Read-only and explicitly authorized write modes.
 - Run by duration or round count, with safe cancellation.
