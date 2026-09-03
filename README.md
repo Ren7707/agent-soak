@@ -73,6 +73,9 @@ adapters/<平台ID>/
 - `deleteResource`
 - 可选的 `scanResidue`
 
+Adapter 的公开 TypeScript 类型位于 `types/index.d.ts`。即使适配器使用
+JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资源上下文。
+
 参考 [适配器模板](templates/adapter.md) 和
 [架构设计](docs/design/2026-09-03-universal-soak-framework.md)。
 

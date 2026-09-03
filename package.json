@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "description": "AI-ready universal soak testing for CLI tools and web agents",
   "type": "module",
+  "files": ["src", "types", "templates", "platform.manifest.schema.json", "README.md", "LICENSE"],
+  "types": "types/index.d.ts",
   "bin": {
     "agent-soak": "src/cli.js"
   },
