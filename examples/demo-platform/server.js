@@ -1,7 +1,9 @@
 import http from 'node:http';
 
 const items = new Map();
+const devices = new Map();
 let nextId = 1;
+let nextDeviceId = 1;
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || '/', 'http://localhost');
   if (request.method === 'GET' && url.pathname === '/') return sendHtml(response, homePage());
@@ -11,6 +13,24 @@ const server = http.createServer(async (request, response) => {
     const prefix = url.searchParams.get('prefix');
     const values = [...items.values()].filter((item) => !prefix || item.name.startsWith(prefix));
     return send(response, 200, { items: values });
+  }
+  if (request.method === 'GET' && url.pathname === '/devices') {
+    const prefix = url.searchParams.get('prefix');
+    const values = [...devices.values()].filter((device) => !prefix || device.name.startsWith(prefix));
+    return send(response, 200, { devices: values });
+  }
+  if (request.method === 'POST' && url.pathname === '/devices') {
+    const body = await readBody(request);
+    if (!body.name || typeof body.name !== 'string') return send(response, 400, { error: 'name_required' });
+    if (body.platform === undefined) return send(response, 400, { error: 'platform_required' });
+    const device = { id: String(nextDeviceId++), name: body.name, platform: body.platform };
+    devices.set(device.id, device);
+    return send(response, 201, device);
+  }
+  const deviceMatch = url.pathname.match(/^\/devices\/(\w+)$/);
+  if (request.method === 'DELETE' && deviceMatch) {
+    if (!devices.delete(deviceMatch[1])) return send(response, 404, { error: 'not_found' });
+    return send(response, 204, null);
   }
   if (request.method === 'POST' && url.pathname === '/items') {
     const body = await readBody(request);

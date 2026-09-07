@@ -33,7 +33,19 @@ export interface SemanticField {
   examples?: unknown[];
   negative_examples?: unknown[];
   required?: boolean;
-  policy?: Record<string, unknown>;
+  policy?: SemanticPolicy;
+  [key: string]: unknown;
+}
+
+export type AllowedValuePolicy = 'known_only' | 'known_or_explicit_custom' | 'observed_or_explicit_custom';
+
+export interface SemanticPolicy {
+  allowed_values?: AllowedValuePolicy;
+  normalize_case?: boolean;
+  trim_whitespace?: boolean;
+  generate_risk_cases?: boolean;
+  reject_unclassified_value?: boolean;
+  risk_expected?: { accepted?: boolean; resourceCreated?: boolean };
   [key: string]: unknown;
 }
 
@@ -48,10 +60,16 @@ export interface ContractCase {
 export interface ScenarioContract {
   field?: string;
   semantic_type?: string;
-  policy?: Record<string, unknown>;
+  policy?: SemanticPolicy;
+  risk_profile?: string;
   fields?: SemanticField[];
   cases?: ContractCase[];
   expected?: Record<string, unknown>;
+  status?: string;
+  review_required?: boolean;
+  approved?: boolean;
+  confidence?: number;
+  evidence_refs?: string[];
 }
 
 export interface SourceAnalysisResult {
@@ -61,6 +79,24 @@ export interface SourceAnalysisResult {
   files: string[];
   evidence: Array<Record<string, unknown>>;
   candidates: Array<Record<string, unknown>>;
+  output?: string;
+}
+
+export interface RuntimeObserver {
+  record(type: string, data?: Record<string, unknown>): string;
+  recordRequest(data: Record<string, unknown>): string;
+  recordResponse(data: Record<string, unknown>): string;
+  recordPage(data: Record<string, unknown>): string;
+  recordResource(data: Record<string, unknown>): string;
+  recordCleanup(data: Record<string, unknown>): string;
+  recordAssertion(data: Record<string, unknown>): string;
+  recordUiAction(data: Record<string, unknown>): string;
+  fetch(input: unknown, init?: Record<string, unknown>): Promise<unknown>;
+  scope(scope?: Record<string, unknown>): RuntimeObservationScope;
+}
+
+export interface RuntimeObservationScope extends RuntimeObserver {
+  ids: string[];
 }
 
 export interface AdapterContext {
@@ -71,8 +107,11 @@ export interface AdapterContext {
   signal?: AbortSignal;
   browser?: unknown;
   registry?: ResourceRegistry;
+  observer?: RuntimeObserver;
   scenario?: ScenarioDeclaration;
   testCase?: ContractCase;
+  phase?: 'scenario' | 'preflight' | 'cleanup';
+  result?: Record<string, unknown> | void;
 }
 
 export interface AdapterScenario {
@@ -101,6 +140,7 @@ export interface Adapter {
   discover(context: AdapterContext): Promise<Record<string, unknown>>;
   scenarios: AdapterScenario[];
   contracts?: ScenarioContract[] | Record<string, ScenarioContract>;
+  observe?(context: AdapterContext): Promise<Record<string, unknown> | void>;
   deleteResource(resource: Resource, context: AdapterContext): Promise<void>;
   scanResidue?(context: AdapterContext): Promise<unknown[]>;
 }

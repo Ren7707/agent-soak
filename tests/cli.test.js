@@ -25,11 +25,29 @@ test('CLI analyze scans an explicit source directory without loading a target ma
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-analyze-'));
   try {
     await fs.writeFile(path.join(cwd, 'form.tsx'), "const platformOptions = ['Windows', 'Linux'];\n");
-    const result = await runCli(['analyze', '--source', cwd, '--json'], { cwd: path.dirname(cwd) });
+    const outputPath = path.join(cwd, 'analysis.json');
+    const result = await runCli(['analyze', '--source', cwd, '--output', outputPath, '--json'], { cwd: path.dirname(cwd) });
     const body = JSON.parse(result.stdout);
     assert.equal(result.code, 0);
     assert.equal(body.command, 'analyze');
     assert.equal(body.candidates[0].field, 'platform');
+    assert.equal(JSON.parse(await fs.readFile(outputPath, 'utf8')).candidates[0].field, 'platform');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('CLI contract writes a reviewable draft from analysis JSON', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-contract-'));
+  try {
+    const analysisPath = path.join(cwd, 'analysis.json');
+    const outputPath = path.join(cwd, 'contracts.json');
+    await fs.writeFile(analysisPath, JSON.stringify({ command: 'analyze', root: cwd, files: [], evidence: [{ id: 'evidence-1' }], candidates: [{ field: 'platform', semantic_type: 'operating_system_platform', examples: ['Linux'], evidence_refs: ['evidence-1'] }] }));
+    const result = await runCli(['contract', '--analysis', analysisPath, '--output', outputPath, '--json'], { cwd: path.dirname(cwd) });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 0);
+    assert.equal(body.status, 'draft');
+    assert.equal(JSON.parse(await fs.readFile(outputPath, 'utf8')).contracts[0].review_required, true);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
@@ -109,6 +127,26 @@ test('CLI reports a semantic contract bug when a nearby value is accepted', asyn
     assert.equal(result.code, 4);
     assert.equal(body.scenarios[0].status, 'confirmed_bug');
     assert.equal(body.scenarios[0].contract.category, 'semantic_constraint_missing');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('CLI persists runtime observations and applies adapter observation results', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-observations-'));
+  try {
+    const artifactDir = path.join(cwd, 'artifacts');
+    await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify({ schema_version: 1, adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'register-device', mode: 'readonly' }] }));
+    await fs.writeFile(path.join(cwd, 'adapter.js'), `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, async observe({ observer }) { observer.recordPage({ url: 'https://demo.test/device', title: 'Device' }); return { resourceCreated: false }; }, scenarios: [{ id: 'register-device', contract: { field: 'platform', semantic_type: 'operating_system_platform', cases: [{ id: 'valid-platform', kind: 'valid', input: { platform: 'Linux' }, expected: { accepted: true, resourceCreated: false } }] }, async run({ observer }) { observer.recordRequest({ method: 'POST', url: 'https://demo.test/devices', body: { platform: 'Linux' } }); return { accepted: true, resourceCreated: true }; } }], async deleteResource() {} }; }`);
+    const result = await runCli(['run', '--rounds', '1', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    const body = JSON.parse(result.stdout);
+    const observations = JSON.parse(await fs.readFile(path.join(artifactDir, body.runId, 'observations.json'), 'utf8'));
+    assert.equal(result.code, 0);
+    assert.equal(body.scenarios[0].ok, true);
+    assert.ok(body.observations.count >= 5);
+    assert.ok(observations.events.some((event) => event.type === 'request'));
+    assert.ok(observations.events.some((event) => event.type === 'page'));
+    assert.equal(body.scenarios[0].details.resourceCreated, false);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }

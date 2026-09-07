@@ -13,6 +13,7 @@
   "capabilities": [
     "health",
     "items",
+    "devices",
     "browser"
   ],
   "scenarios": [
@@ -38,6 +39,15 @@
       "mode": "write",
       "capabilities": [
         "items"
+      ],
+      "cleanup": "delete-created"
+    },
+    {
+      "id": "register-device-semantic",
+      "title": "Detect invalid device platform semantics",
+      "mode": "write",
+      "capabilities": [
+        "devices"
       ],
       "cleanup": "delete-created"
     },

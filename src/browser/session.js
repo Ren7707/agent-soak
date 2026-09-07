@@ -2,11 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export class BrowserSession {
-  constructor({ artifactDir, runId, supervised = false, browserType = 'chromium' }) {
+  constructor({ artifactDir, runId, supervised = false, browserType = 'chromium', observer = undefined }) {
     this.artifactDir = artifactDir;
     this.runId = runId;
     this.supervised = supervised;
     this.browserType = browserType;
+    this.observer = observer;
     this.browser = null;
     this.context = null;
     this._page = null;
@@ -37,6 +38,12 @@ export class BrowserSession {
     return this._page;
   }
 
+  setObserver(observer) {
+    const previous = this.observer;
+    this.observer = observer;
+    return previous;
+  }
+
   async goto(url) { return this.perform('goto', url, () => this.page.goto(url, { waitUntil: 'domcontentloaded' })); }
   async click(selector) { return this.perform('click', selector, () => this.page.locator(selector).click()); }
   async fill(selector, value) { return this.perform('fill', selector, () => this.page.locator(selector).fill(value), { sensitive: true }); }
@@ -48,6 +55,7 @@ export class BrowserSession {
     const index = String(++this.screenshotIndex).padStart(3, '0');
     const file = path.join(dir, `${index}-${safeFileName(name)}.png`);
     await this.page.screenshot({ path: file, fullPage: true });
+    this.observer?.recordPage({ operation: 'screenshot', name, file });
     return file;
   }
   async close() {
@@ -71,8 +79,18 @@ export class BrowserSession {
     } finally {
       entry.durationMs = Date.now() - started;
       this.audit.push(entry);
+      this.observer?.recordUiAction(entry);
+      await recordPageState(this.observer, operation, this.page);
     }
   }
+}
+
+async function recordPageState(observer, operation, page) {
+  if (!observer || !page) return;
+  let url;
+  try { url = page.url(); } catch { url = undefined; }
+  const title = await page.title().catch(() => undefined);
+  observer.recordPage({ operation, url, title });
 }
 
 export async function installOverlay(page) {

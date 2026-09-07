@@ -13,6 +13,7 @@
     "demo": "node examples/demo-platform/server.js",
     "inspect": "node src/cli.js inspect",
     "analyze": "node src/cli.js analyze --json",
+    "contract": "node src/cli.js contract --json",
     "validate": "node src/cli.js validate",
     "run": "node src/cli.js run",
     "cleanup": "node src/cli.js cleanup",

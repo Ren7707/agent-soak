@@ -1,10 +1,11 @@
-const SAMPLE_KINDS = new Set(['valid', 'boundary', 'nearby_semantic', 'wrong_type', 'missing', 'normalization', 'duplicate', 'relationship']);
+import { validateCase, validateContract } from './validation.js';
+import { generateRiskCases } from './risk-library.js';
 
 export function generateContractCases(contract = {}) {
   const fields = Array.isArray(contract.fields) ? contract.fields : [];
   const explicit = Array.isArray(contract.cases) ? contract.cases : [];
   const generated = fields.flatMap((field) => generateFieldCases(field));
-  const cases = [...explicit, ...generated];
+  const cases = dedupeCases([...explicit, ...generated]);
   if (cases.length === 0) return [{ id: 'baseline', kind: 'valid', input: {}, expected: {} }];
   return cases.map((item, index) => normalizeCase(item, index));
 }
@@ -18,36 +19,39 @@ export function evaluateContract(contract, testCase, details) {
     if (!Object.is(actual[key], expectedValue)) mismatches.push({ field: key, expected: expectedValue, actual: actual[key] });
   }
   if (mismatches.length === 0) return { ok: true, status: 'passed', mismatches: [] };
-  const semantic = testCase.kind === 'nearby_semantic' || testCase.kind === 'wrong_type' || contract.semantic_type;
+  const semantic = ['nearby_semantic', 'wrong_type', 'missing', 'normalization', 'duplicate', 'relationship'].includes(testCase.kind);
+  const acceptanceMismatch = mismatches.find((item) => item.field === 'accepted');
+  const statusMismatch = mismatches.find((item) => item.field === 'resourceCreated' || item.field === 'state' || item.field === 'normalizedValue');
+  let category = 'contract_assertion_failed';
+  if (['nearby_semantic', 'wrong_type', 'missing'].includes(testCase.kind)) category = 'semantic_constraint_missing';
+  else if (testCase.kind === 'normalization') category = 'normalization_inconsistency';
+  else if (testCase.kind === 'duplicate' || testCase.kind === 'relationship') category = 'state_transition_violation';
+  else if (acceptanceMismatch?.expected === false && acceptanceMismatch.actual === true) category = 'unexpected_acceptance';
+  else if (acceptanceMismatch?.expected === true && acceptanceMismatch.actual === false) category = 'unexpected_rejection';
+  else if (statusMismatch) category = 'state_transition_violation';
+  if (semantic && category === 'contract_assertion_failed') category = 'semantic_constraint_missing';
+  const confirmed = !semantic || isReviewedContract(contract);
   return {
     ok: false,
-    status: semantic ? 'confirmed_bug' : 'failed',
-    category: semantic ? 'semantic_constraint_missing' : 'contract_assertion_failed',
-    severity: semantic ? 'high' : 'medium',
+    status: confirmed ? (semantic ? 'confirmed_bug' : 'failed') : 'semantic_suspect',
+    category: confirmed ? category : 'semantic_suspect',
+    severity: confirmed ? (semantic ? 'high' : 'medium') : 'unknown',
+    certainty: confirmed ? 'confirmed' : 'suspect',
     mismatches,
-    rule: { semantic_type: contract.semantic_type, field: contract.field, policy: contract.policy },
+    rule: ruleFor(contract, testCase),
+    ...(confirmed ? {} : { reason: 'contract_requires_review' }),
   };
 }
 
-export function validateContract(contract) {
-  if (!contract || typeof contract !== 'object') throw new Error('contract_invalid');
-  if (contract.semantic_type !== undefined && typeof contract.semantic_type !== 'string') throw new Error('contract_invalid_semantic_type');
-  if (contract.field !== undefined && typeof contract.field !== 'string') throw new Error('contract_invalid_field');
-  if (contract.fields !== undefined && !Array.isArray(contract.fields)) throw new Error('contract_fields_must_be_array');
-  if (contract.cases !== undefined && !Array.isArray(contract.cases)) throw new Error('contract_cases_must_be_array');
-  for (const item of contract.cases || []) validateCase(item);
-  for (const field of contract.fields || []) {
-    if (!field || typeof field !== 'object' || typeof field.path !== 'string') throw new Error('contract_field_invalid');
-    if (field.semantic_type !== undefined && typeof field.semantic_type !== 'string') throw new Error('contract_field_semantic_type_invalid');
-  }
-  return contract;
-}
+export { synthesizeContracts } from './synthesis.js';
+export { validateCase, validateContract } from './validation.js';
 
 function generateFieldCases(field) {
   const policy = field.policy || {};
   const values = Array.isArray(field.examples) ? field.examples : [];
   const cases = values.map((value, index) => ({ id: `${field.path}-valid-${index + 1}`, kind: 'valid', input: { [field.path]: value }, expected: field.valid_expected || { accepted: true, resourceCreated: true } }));
   for (const value of field.negative_examples || []) cases.push({ id: `${field.path}-nearby-${cases.length + 1}`, kind: 'nearby_semantic', input: { [field.path]: value }, expected: field.negative_expected || { accepted: false, resourceCreated: false } });
+  cases.push(...generateRiskCases(field));
   if (policy.normalize_case && typeof values[0] === 'string') cases.push({ id: `${field.path}-normalization-case`, kind: 'normalization', input: { [field.path]: values[0].toUpperCase() }, expected: field.normalization_expected || { accepted: true, resourceCreated: true } });
   if (policy.trim_whitespace && typeof values[0] === 'string') cases.push({ id: `${field.path}-normalization-space`, kind: 'normalization', input: { [field.path]: ` ${values[0]} ` }, expected: field.normalization_expected || { accepted: true, resourceCreated: true } });
   if (field.required !== false) cases.push({ id: `${field.path}-missing`, kind: 'missing', input: {}, expected: field.missing_expected || { accepted: false, resourceCreated: false } });
@@ -59,9 +63,35 @@ function normalizeCase(item, index) {
   return { id: item.id || `case-${index + 1}`, kind: item.kind || 'valid', input: item.input || {}, expected: item.expected || {}, description: item.description };
 }
 
-function validateCase(item) {
-  if (!item || typeof item !== 'object') throw new Error('contract_case_invalid');
-  if (item.kind !== undefined && !SAMPLE_KINDS.has(item.kind)) throw new Error(`contract_case_kind_invalid: ${item.kind}`);
-  if (item.input !== undefined && (typeof item.input !== 'object' || Array.isArray(item.input))) throw new Error('contract_case_input_invalid');
-  if (item.expected !== undefined && (typeof item.expected !== 'object' || Array.isArray(item.expected))) throw new Error('contract_case_expected_invalid');
+function dedupeCases(cases) {
+  const seen = new Set();
+  return cases.filter((item) => {
+    const key = `${item.kind || 'valid'}:${stableValue(item.input)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
+
+function stableValue(value) {
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+function ruleFor(contract, testCase) {
+  const fields = Array.isArray(contract.fields) ? contract.fields : [];
+  const fieldPath = contract.field || Object.keys(testCase.input || {})[0];
+  const field = fields.find((item) => item.path === fieldPath) || fields[0];
+  return {
+    semantic_type: contract.semantic_type || field?.semantic_type,
+    field: fieldPath || field?.path,
+    policy: contract.policy || field?.policy,
+  };
+}
+
+function isReviewedContract(contract) {
+  return contract?.review_required !== true
+    && !['draft', 'candidate', 'review_required'].includes(contract?.status)
+    && contract?.approved !== false;
+}
+
+export { getRiskProfile, generateRiskCases } from './risk-library.js';

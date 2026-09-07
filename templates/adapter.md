@@ -3,10 +3,19 @@
 Implement the adapter contract expected by `agent-soak`:
 
 ```js
-export function createAdapter({ manifest, baseUrl, fetchImpl, registry }) {
+export function createAdapter({ manifest, baseUrl, registry }) {
   return {
-    async preflight() {},
+    async preflight({ observer }) {
+      const request = observer?.fetch?.bind(observer) || fetch;
+      const response = await request(`${baseUrl}/health`);
+      return { ok: response.ok, status: response.status };
+    },
     async discover() { return { capabilities: manifest.capabilities }; },
+    async observe({ observer, result }) {
+      // Return authoritative state after the action. Do not treat HTTP 2xx alone as success.
+      observer?.recordAssertion({ name: 'domain-state', actual: result, status: 'observed' });
+      return result;
+    },
     scenarios: [
       {
         id: 'example-read',
@@ -26,8 +35,9 @@ export function createAdapter({ manifest, baseUrl, fetchImpl, registry }) {
             policy: { normalize_case: true, trim_whitespace: true }
           }]
         },
-        async run({ testCase }) {
+        async run({ testCase, observer }) {
           // Return deterministic observations for contract assertions.
+          observer?.recordRequest({ method: 'POST', url: '/domain-entities', body: testCase.input });
           return { accepted: true, resourceCreated: false, input: testCase.input };
         }
       }
@@ -44,3 +54,8 @@ export function createAdapter({ manifest, baseUrl, fetchImpl, registry }) {
 
 Keep authentication, selectors, routes, and platform state machines in this
 adapter. Do not add them to the framework core.
+
+Use `observer.fetch()` for HTTP calls when request/response evidence is needed.
+The runner writes the redacted event stream to `observations.json`; scenario
+results contain `observation_refs` so an Agent can trace a conclusion back to
+the exact request, response, page state, resource state, and cleanup event.

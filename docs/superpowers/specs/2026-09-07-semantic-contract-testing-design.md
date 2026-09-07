@@ -182,6 +182,11 @@ semantic_constraint_missing
 缺少证据的模型推断只能产生 `semantic_suspect` 或 `inconclusive`，
 不能产生 `confirmed_bug`。
 
+源码分析命令生成的契约草稿默认带 `review_required: true`、`status: draft`。
+草稿可以执行探索性测试，但语义断言失败只标记为 `semantic_suspect`，并以
+`certainty: suspect`、`severity: unknown` 输出，直到适配器明确审核并绑定
+可复核的规则来源。
+
 ## 6. 测试生成与执行
 
 测试生成围绕实体、字段、操作和状态转换进行，而不是围绕页面按钮数量
@@ -234,6 +239,13 @@ semantic_constraint_missing
 - 状态值被填入描述文本；
 - 金额、数量、比例和日期的语义混用。
 
+风险库按字段 `semantic_type` 选择样本，并受契约策略控制。它可以生成邻近
+语义值和明显错误类型值，但不会自动把样本升级为产品规则。契约策略中的
+`allowed_values` 仅允许 `known_only`、`known_or_explicit_custom` 或
+`observed_or_explicit_custom`；`normalize_case`、`trim_whitespace`、
+`generate_risk_cases` 和 `reject_unclassified_value` 必须是布尔值。错误的
+策略配置在 Adapter 加载阶段直接拒绝，避免测试计划静默失真。
+
 ### 7.2 角色与权限风险
 
 - 普通用户执行管理员操作；
@@ -256,14 +268,14 @@ semantic_constraint_missing
 - 区域、时区、币种和地址不一致；
 - 设备平台、架构、代理版本之间不匹配。
 
-### 7.5 规范化与幂等风险
+### 7.4 规范化与幂等风险
 
 - 大小写或前后空格造成重复值；
 - 同义值未归一化；
 - 重试导致重复创建；
 - 删除、更新和提交接口不具备预期幂等性。
 
-### 7.6 成功响应伪象
+### 7.5 成功响应伪象
 
 - HTTP 2xx 但响应体包含错误；
 - 返回资源 ID 但详情不可查；
@@ -360,4 +372,3 @@ Adapter 继续负责平台动作和平台专用生命周期，但可以额外提
 - 执行只读探索，再请求写入授权；
 - 聚合缺陷、证据和修复建议；
 - 保存规则、Adapter 和测试报告版本，支持复用。
-

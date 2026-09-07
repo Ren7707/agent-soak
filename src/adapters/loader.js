@@ -21,6 +21,7 @@ function validateAdapter(adapter, manifest) {
   for (const method of ['preflight', 'discover', 'deleteResource']) {
     if (typeof adapter[method] !== 'function') throw new Error(`adapter_missing_method: ${method}`);
   }
+  if (adapter.observe !== undefined && typeof adapter.observe !== 'function') throw new Error('adapter_observe_invalid');
   if (!Array.isArray(adapter.scenarios)) throw new Error('adapter_scenarios_required');
   const declared = new Set(manifest.scenarios.map((scenario) => scenario.id));
   const implemented = new Set();

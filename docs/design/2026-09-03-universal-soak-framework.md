@@ -43,6 +43,7 @@ src/
   resources/   registration, cleanup, residue detection
   knowledge/   authorized source evidence and semantic candidates
   contracts/   semantic contracts and deterministic assertions
+  evidence/    redacted runtime observations and evidence references
   generators/  semantic and boundary test case generation
   adapters/    manifest validation and adapter loading
   reporters/   JSON, JUnit, Markdown, HTML
@@ -54,8 +55,15 @@ templates/         manifest and adapter starter files
 
 The core never imports a platform-specific adapter. Adapters receive a run
 context and expose `preflight`, `authenticate`, `discover`, `scenarios`, and
-resource lifecycle methods. Scenarios declare whether they are read-only or
-write-capable and which platform capabilities they require.
+resource lifecycle methods. They may also expose `observe` to read authoritative
+post-action state. Scenarios declare whether they are read-only or write-capable
+and which platform capabilities they require.
+
+Runtime observations use one normalized event stream. Adapters can call
+`observer.fetch()` for HTTP evidence and record page, resource, assertion, and
+cleanup events. The runner persists the stream as `observations.json` and stores
+event IDs in scenario results, so a semantic finding is reproducible without
+treating a 2xx response or completed UI action as proof of business success.
 
 ## Safety Model
 
@@ -84,6 +92,7 @@ agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
 agent-soak doctor --json
 agent-soak analyze --source <authorized-source-directory> --json
+agent-soak contract --analysis <analysis.json> --output <contracts.json> --json
 ```
 
 Scenario declarations can include `timeout_ms` and `retries`. The runner passes
@@ -98,12 +107,14 @@ single structured result suitable for an Agent.
 `analyze` is read-only. It scans an explicitly authorized source directory and
 returns evidence-bound candidate fields with file paths, line numbers, observed
 values, semantic type guesses, and confidence. Candidates must be reviewed or
-converted into a contract before they become test expectations.
+converted into a contract before they become test expectations. Contract
+synthesis rejects references to evidence that is not present in the analysis.
 
 ## Verification
 
 The test suite covers manifest validation, mode and write-gate handling,
 resource ownership and cleanup recovery, scheduler cancellation, report
-generation, and a local demo end-to-end run. CI runs the same checks on Linux;
+generation, source evidence validation, runtime observation persistence, and a
+local demo end-to-end run. CI runs the same checks on Linux;
 the CLI uses Node APIs and PowerShell-compatible scripts for Windows users.
 CI tests Node.js 20, 22, and 24 and uses `npm ci` for reproducible installs.

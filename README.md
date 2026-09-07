@@ -26,7 +26,8 @@ node src/cli.js run --rounds 2 --mode write --allow-writes --json
 node src/cli.js residue --json
 node src/cli.js doctor --json
 node src/cli.js --version --json
-node src/cli.js analyze --source ./src --json
+node src/cli.js analyze --source ./src --output ./artifacts/source-analysis.json --json
+node src/cli.js contract --analysis ./artifacts/source-analysis.json --output ./artifacts/contracts.json --json
 ```
 
 测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML 和 HTML。
@@ -44,6 +45,7 @@ node src/cli.js analyze --source ./src --json
 - Manifest 自动校验和 YAML 支持
 - 通过 `init-adapter` 快速创建平台适配器模板
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
+- 运行时请求/响应、页面、资源、断言和清理证据链
 
 ## 平台接入
 
@@ -74,6 +76,7 @@ adapters/<平台ID>/
 - `scenarios`
 - `deleteResource`
 - 可选的 `scanResidue`
+- 可选的 `observe`，用于在操作后读取权威业务状态
 
 Adapter 的公开 TypeScript 类型位于 `types/index.d.ts`。即使适配器使用
 JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资源上下文。
@@ -118,9 +121,29 @@ JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资�
 和幂等性等问题。大模型可以从源码和页面生成候选契约，但最终结论仍由
 确定性断言、运行状态和脱敏证据共同决定。
 
+框架内置通用语义风险库。启用字段策略中的 `generate_risk_cases`、
+`reject_unclassified_value` 或 `allowed_values` 后，会自动补充邻近语义值和
+明显错误类型值，例如把设备名称填入平台字段、把日期填入状态字段。风险库
+只生成测试样本，不替产品定义规则；`known_only` 等策略必须由适配器或人工
+审核确认。源码扫描和模型生成的契约默认为 `draft`，其失败结果只标记为
+`semantic_suspect`，只有审核后的契约才允许报告 `confirmed_bug`。
+
 契约场景应返回可观察结果，例如 `accepted`、`resourceCreated`、`resource`
 或领域自定义状态字段。框架不会把 HTTP 2xx 自动当作业务成功；Adapter
 需要把接口、页面和资源状态转换成这些可断言的观察值。
+
+### 运行时观测
+
+Adapter 可以使用 `observer.fetch()` 代替全局 `fetch`，框架会记录脱敏后的
+请求、响应状态、响应摘要和耗时；也可以使用 `recordPage`、`recordResource`、
+`recordAssertion` 等接口记录页面状态、资源状态和业务断言。实现可选的
+`observe` 钩子后，Runner 会在场景动作完成后再次读取平台状态，并把钩子返回
+的权威字段合并到契约断言中。这样 HTTP 2xx 或按钮操作完成不会自动等同于
+业务成功。
+
+每轮产物包含 `observations.json`，场景结果包含 `observation_refs`。报告和
+复现分析可以从结论回溯到请求、响应、页面回显、资源登记和清理结果；敏感
+字段、Bearer 值和过长内容会自动脱敏或截断。
 
 参考 [适配器模板](templates/adapter.md) 和
 [架构设计](docs/design/2026-09-03-universal-soak-framework.md)。
@@ -148,7 +171,9 @@ agent-soak analyze --source <授权源码目录> --json
 
 analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录，输出字段
 引用、源码行号、观察到的枚举值和候选语义类型，供人工审阅或后续大模型
-生成契约使用。候选规则不是最终产品规则，不会直接改变测试结果。
+生成契约使用。候选规则不是最终产品规则，不会直接改变测试结果。`contract`
+命令只接受带有效 `evidence_refs` 的分析结果，并生成需要人工审阅的草稿，
+不会把模型或扫描器的猜测直接升级为确定缺陷。
 
 ## 安全边界
 

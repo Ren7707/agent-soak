@@ -8,7 +8,7 @@ import { initAdapter } from '../src/adapters/init.js';
 import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
-import { evaluateContract, generateContractCases, validateContract } from '../src/contracts/index.js';
+import { evaluateContract, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
 import { analyzeSource } from '../src/knowledge/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
@@ -19,6 +19,19 @@ test('semantic contract generates nearby, normalization, and missing cases', () 
   assert.equal(cases.find((item) => item.kind === 'nearby_semantic').expected.accepted, false);
 });
 
+test('risk library generates cross-domain values only when policy enables it', () => {
+  assert.equal(generateRiskCases({ path: 'platform', semantic_type: 'operating_system_platform' }).length, 0);
+  const cases = generateRiskCases({ path: 'platform', semantic_type: 'operating_system_platform', policy: { reject_unclassified_value: true } });
+  assert.ok(cases.some((item) => item.input.platform === 'test computer 0001'));
+  assert.ok(cases.some((item) => item.kind === 'wrong_type'));
+  assert.ok(getRiskProfile('email_address').nearby_semantic.length > 0);
+});
+
+test('generated risk cases are deduplicated against explicit negatives', () => {
+  const cases = generateContractCases({ fields: [{ path: 'platform', semantic_type: 'operating_system_platform', negative_examples: ['test computer 0001'], policy: { generate_risk_cases: true } }] });
+  assert.equal(cases.filter((item) => item.input.platform === 'test computer 0001').length, 1);
+});
+
 test('semantic contract detects a semantically wrong value accepted and persisted', () => {
   const contract = { field: 'platform', semantic_type: 'operating_system_platform' };
   const result = evaluateContract(contract, { kind: 'nearby_semantic', input: { platform: 'test computer 0001' }, expected: { accepted: false, resourceCreated: false } }, { accepted: true, resourceCreated: true, resource: { id: '1', platform: 'test computer 0001' } });
@@ -27,27 +40,103 @@ test('semantic contract detects a semantically wrong value accepted and persiste
   assert.equal(result.ok, false);
 });
 
+test('unreviewed semantic contracts produce suspects instead of confirmed bugs', () => {
+  const contract = { field: 'platform', semantic_type: 'operating_system_platform', review_required: true, status: 'draft' };
+  const result = evaluateContract(contract, { kind: 'nearby_semantic', input: { platform: 'test computer 0001' }, expected: { accepted: false } }, { accepted: true });
+  assert.equal(result.status, 'semantic_suspect');
+  assert.equal(result.category, 'semantic_suspect');
+  assert.equal(result.severity, 'unknown');
+});
+
 test('semantic contract accepts explicitly allowed custom values without a false positive', () => {
   const contract = { field: 'platform', semantic_type: 'operating_system_platform' };
   const result = evaluateContract(contract, { kind: 'valid', input: { platform: 'AcmeOS' }, expected: { accepted: true, resourceCreated: true } }, { accepted: true, resourceCreated: true });
   assert.equal(result.ok, true);
 });
 
+test('semantic contract classifies normalization and acceptance defects separately', () => {
+  const contract = { field: 'platform', semantic_type: 'operating_system_platform' };
+  const normalization = evaluateContract(contract, { kind: 'normalization', input: { platform: ' Linux ' }, expected: { accepted: true, normalizedValue: 'Linux' } }, { accepted: true, normalizedValue: ' Linux ' });
+  assert.equal(normalization.status, 'confirmed_bug');
+  assert.equal(normalization.category, 'normalization_inconsistency');
+  const rejection = evaluateContract(contract, { kind: 'valid', input: { platform: 'Linux' }, expected: { accepted: true } }, { accepted: false });
+  assert.equal(rejection.status, 'failed');
+  assert.equal(rejection.category, 'unexpected_rejection');
+});
+
 test('semantic contract rejects malformed declarations', () => {
   assert.throws(() => validateContract({ fields: [{ path: 'platform' }], cases: [{ kind: 'not-a-kind' }] }), /contract_case_kind_invalid/);
+  assert.throws(() => validateContract({ fields: [{ path: 'platform', examples: 'Linux' }] }), /contract_field_examples_must_be_array/);
+  assert.throws(() => validateContract({ confidence: 2 }), /contract_confidence_invalid/);
+  assert.throws(() => validateContract({ policy: { allowed_values: 'anything' } }), /contract_policy_allowed_values_invalid/);
+  assert.throws(() => validateContract({ fields: [{ path: 'platform', policy: { normalize_case: 'yes' } }] }), /contract_field_policy_normalize_case_invalid/);
+  assert.throws(() => validateContract({ fields: [{ path: 'platform', policy: { risk_expected: { accepted: 'no' } } }] }), /contract_field_policy_risk_expected_accepted_invalid/);
+  assert.doesNotThrow(() => validateContract({ fields: [{ path: 'platform', policy: { allowed_values: 'known_only', generate_risk_cases: true, risk_expected: { accepted: false, resourceCreated: false } } }] }));
 });
 
 test('source analysis returns evidence-bound semantic candidates', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-analysis-'));
   try {
     await fs.writeFile(path.join(dir, 'device-form.tsx'), "const platformOptions = ['Windows', 'macOS', 'Linux'];\nconst platform = 'platform';\n");
+    await fs.writeFile(path.join(dir, 'device-settings.tsx'), "const platformValues = ['Linux', 'Windows'];\n");
     await fs.mkdir(path.join(dir, 'node_modules'));
     await fs.writeFile(path.join(dir, 'node_modules', 'ignored.js'), "const platformOptions = ['secret'];\n");
     const result = await analyzeSource({ root: dir });
-    assert.deepEqual(result.files, ['device-form.tsx']);
+    assert.deepEqual(result.files, ['device-form.tsx', 'device-settings.tsx']);
     assert.equal(result.candidates[0].semantic_type, 'operating_system_platform');
     assert.deepEqual(result.candidates[0].examples, ['Windows', 'macOS', 'Linux']);
     assert.equal(result.evidence[0].line, 1);
+    assert.notEqual(result.evidence[0].id, result.evidence[2].id);
+    assert.equal(result.candidates[0].conflicts[0].kind, 'observed_value_sets');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('contract synthesis creates reviewable draft contracts from analysis', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-contract-synthesis-'));
+  try {
+    const analysisPath = path.join(dir, 'analysis.json');
+    const outputPath = path.join(dir, 'contracts.json');
+    await fs.writeFile(analysisPath, JSON.stringify({ command: 'analyze', root: dir, files: ['form.tsx'], evidence: [{ id: 'evidence-1' }], candidates: [{ field: 'platform', semantic_type: 'operating_system_platform', examples: ['Windows', 'Linux'], evidence_refs: ['evidence-1'], confidence: 0.9, policy: { allowed_values: 'observed_or_explicit_custom' } }] }));
+    const result = await synthesizeContracts({ analysisPath, outputPath });
+    assert.equal(result.status, 'draft');
+    assert.equal(result.contracts[0].review_required, true);
+    assert.deepEqual(result.contracts[0].evidence_refs, ['evidence-1']);
+    assert.equal(JSON.parse(await fs.readFile(outputPath, 'utf8')).contracts[0].field, 'platform');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('contract synthesis rejects non-analysis input', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-contract-invalid-'));
+  try {
+    const analysisPath = path.join(dir, 'invalid.json');
+    await fs.writeFile(analysisPath, JSON.stringify({ command: 'inspect' }));
+    await assert.rejects(synthesizeContracts({ analysisPath }), /analysis_invalid/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('source analysis rejects a missing or non-directory root', async () => {
+  await assert.rejects(analyzeSource({ root: path.join(os.tmpdir(), 'agent-soak-source-does-not-exist') }), /source_root_not_found/);
+  const file = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-file-')), 'source.ts');
+  try {
+    await fs.writeFile(file, 'const platform = true;\n');
+    await assert.rejects(analyzeSource({ root: file }), /source_root_not_directory/);
+  } finally {
+    await fs.rm(path.dirname(file), { recursive: true, force: true });
+  }
+});
+
+test('contract synthesis rejects evidence references that are not in the analysis', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-contract-evidence-'));
+  try {
+    const analysisPath = path.join(dir, 'analysis.json');
+    await fs.writeFile(analysisPath, JSON.stringify({ command: 'analyze', root: dir, files: [], evidence: [], candidates: [{ field: 'platform', evidence_refs: ['missing-evidence'] }] }));
+    await assert.rejects(synthesizeContracts({ analysisPath }), /analysis_evidence_reference_missing/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

@@ -4,10 +4,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 export class ResourceRegistry {
-  constructor({ artifactDir, runId, prefix }) {
+  constructor({ artifactDir, runId, prefix, observer = undefined }) {
     this.artifactDir = artifactDir;
     this.runId = runId;
     this.prefix = prefix;
+    this.observer = observer;
     this.resources = [];
   }
 
@@ -16,6 +17,7 @@ export class ResourceRegistry {
     if (!resource.name.startsWith(this.prefix)) throw new Error('resource_prefix_mismatch');
     const entry = { ...resource, runId: this.runId, state: 'active', registeredAt: new Date().toISOString() };
     this.resources.push(entry);
+    this.observer?.recordResource({ action: 'register', resource: entry });
     this.persistSync();
     return entry;
   }
@@ -41,10 +43,12 @@ export class ResourceRegistry {
     for (const resource of this.resources.filter((item) => item.state === 'active' || item.state === 'pending')) {
       if (!this.owns(resource)) {
         results.push({ id: resource.id, ok: false, error: 'ownership_check_failed' });
+        this.observer?.recordCleanup({ action: 'skip', resource, result: results.at(-1) });
         continue;
       }
       if (dryRun) {
         results.push({ id: resource.id, ok: true, dryRun: true });
+        this.observer?.recordCleanup({ action: 'preview', resource, result: results.at(-1) });
         continue;
       }
       try {
@@ -52,9 +56,11 @@ export class ResourceRegistry {
         resource.state = 'cleaned';
         resource.cleanedAt = new Date().toISOString();
         results.push({ id: resource.id, ok: true });
+        this.observer?.recordCleanup({ action: 'delete', resource, result: results.at(-1) });
       } catch (error) {
         resource.state = 'pending';
         results.push({ id: resource.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+        this.observer?.recordCleanup({ action: 'delete', resource, result: results.at(-1) });
       }
     }
     await this.persist();

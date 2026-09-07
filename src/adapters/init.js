@@ -51,8 +51,9 @@ scenarios:
 function adapterTemplate() {
   return `export function createAdapter() {
   return {
-    async preflight({ baseUrl, manifest }) {
-      const response = await fetch(\`${'${baseUrl}${manifest.platform.health_path || \'/health\'}'}\`);
+    async preflight({ baseUrl, manifest, observer }) {
+      const request = observer?.fetch?.bind(observer) || fetch;
+      const response = await request(\`${'${baseUrl}${manifest.platform.health_path || \'/health\'}'}\`);
       return { ok: response.ok, status: response.status };
     },
     async discover({ manifest }) {
@@ -61,8 +62,9 @@ function adapterTemplate() {
     scenarios: [
       {
         id: 'health',
-        async run({ baseUrl, manifest }) {
-          const response = await fetch(\`${'${baseUrl}${manifest.platform.health_path || \'/health\'}'}\`);
+        async run({ baseUrl, manifest, observer }) {
+          const request = observer?.fetch?.bind(observer) || fetch;
+          const response = await request(\`${'${baseUrl}${manifest.platform.health_path || \'/health\'}'}\`);
           if (!response.ok) throw new Error(\`health_http_${'${response.status}'}\`);
           return { ok: true, status: response.status };
         },
