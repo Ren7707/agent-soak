@@ -134,6 +134,10 @@ JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资�
 `duplicate` 类型的场景案例；这些声明用于约束后续生成器和 Adapter 的执行，
 不会绕过现有写入授权和清理边界。
 
+不变量支持 `equals`、`not_equals`、`in`、`before` 和 `state_transition`。
+字段路径使用点号访问 Adapter 返回的观察结果，例如 `resource.ownerId`；
+不变量违规会进入确定性证据链并归类为 `state_transition_violation`。
+
 当案例包含至少两个 `sequence` 步骤时，Runner 会优先调用 Adapter 的
 `runSequence`；没有该钩子时仍回退到普通 `run`，保证旧 Adapter 兼容。
 

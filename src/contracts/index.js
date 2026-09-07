@@ -18,6 +18,7 @@ export function evaluateContract(contract, testCase, details) {
     if (expectedValue === undefined) continue;
     if (!Object.is(actual[key], expectedValue)) mismatches.push({ field: key, expected: expectedValue, actual: actual[key] });
   }
+  mismatches.push(...evaluateInvariants(contract.invariants, actual));
   if (mismatches.length === 0) return { ok: true, status: 'passed', mismatches: [] };
   const semantic = ['nearby_semantic', 'wrong_type', 'missing', 'normalization', 'duplicate', 'relationship', 'lifecycle'].includes(testCase.kind);
   const acceptanceMismatch = mismatches.find((item) => item.field === 'accepted');
@@ -41,6 +42,13 @@ export function evaluateContract(contract, testCase, details) {
     rule: ruleFor(contract, testCase),
     ...(confirmed ? {} : { reason: 'contract_requires_review' }),
   };
+}
+
+export function evaluateInvariants(invariants = [], actual = {}) {
+  return invariants.flatMap((invariant) => {
+    const violation = checkInvariant(invariant, actual);
+    return violation ? [{ field: `invariant:${invariant.id}`, expected: invariant.description, actual: violation }] : [];
+  });
 }
 
 export { synthesizeContracts } from './synthesis.js';
@@ -93,6 +101,38 @@ function isReviewedContract(contract) {
   return contract?.review_required !== true
     && !['draft', 'candidate', 'review_required'].includes(contract?.status)
     && contract?.approved !== false;
+}
+
+function checkInvariant(invariant, actual) {
+  if (!invariant || typeof invariant !== 'object') return 'invalid_invariant';
+  const left = readPath(actual, invariant.left);
+  const right = readPath(actual, invariant.right);
+  switch (invariant.type) {
+    case 'equals': return Object.is(left, right) ? null : `${invariant.left} != ${invariant.right}`;
+    case 'not_equals': return Object.is(left, right) ? `${invariant.left} == ${invariant.right}` : null;
+    case 'in': return Array.isArray(invariant.values) && invariant.values.some((value) => Object.is(value, left)) ? null : `${invariant.left} is outside allowed values`;
+    case 'before': return compareValues(left, right) < 0 ? null : `${invariant.left} is not before ${invariant.right}`;
+    case 'state_transition': return allowedTransition(invariant, actual) ? null : `transition ${String(readPath(actual, invariant.from || 'previousState'))} -> ${String(readPath(actual, invariant.to || 'state'))} is not allowed`;
+    default: return `unsupported invariant type: ${String(invariant.type)}`;
+  }
+}
+
+function allowedTransition(invariant, actual) {
+  const from = readPath(actual, invariant.from || 'previousState');
+  const to = readPath(actual, invariant.to || 'state');
+  return Array.isArray(invariant.transitions) && invariant.transitions.some((item) => item?.from === from && item?.to === to);
+}
+
+function compareValues(left, right) {
+  const leftTime = typeof left === 'string' ? Date.parse(left) : Number(left);
+  const rightTime = typeof right === 'string' ? Date.parse(right) : Number(right);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) return leftTime - rightTime;
+  return String(left).localeCompare(String(right));
+}
+
+function readPath(value, path) {
+  if (!path) return undefined;
+  return String(path).split('.').reduce((current, key) => current == null ? undefined : current[key], value);
 }
 
 export { getRiskProfile, generateRiskCases } from './risk-library.js';

@@ -52,6 +52,10 @@ export function validateCase(item) {
 
 function validateInvariant(item) {
   if (!item || typeof item !== 'object' || typeof item.id !== 'string' || !item.id || typeof item.description !== 'string' || !item.description) throw new Error('contract_invariant_invalid');
+  if (!['equals', 'not_equals', 'in', 'before', 'state_transition'].includes(item.type)) throw new Error('contract_invariant_type_invalid');
+  if (['equals', 'not_equals', 'before'].includes(item.type) && (typeof item.left !== 'string' || typeof item.right !== 'string')) throw new Error('contract_invariant_fields_invalid');
+  if (item.type === 'in' && (typeof item.left !== 'string' || !Array.isArray(item.values))) throw new Error('contract_invariant_values_invalid');
+  if (item.type === 'state_transition' && (!Array.isArray(item.transitions) || item.transitions.some((transition) => !transition || typeof transition.from !== 'string' || typeof transition.to !== 'string'))) throw new Error('contract_invariant_transitions_invalid');
   if (item.severity !== undefined && !['low', 'medium', 'high'].includes(item.severity)) throw new Error('contract_invariant_severity_invalid');
   if (item.evidence_refs !== undefined && (!Array.isArray(item.evidence_refs) || item.evidence_refs.some((ref) => typeof ref !== 'string' || !ref))) throw new Error('contract_invariant_evidence_refs_invalid');
 }

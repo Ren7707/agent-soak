@@ -62,6 +62,13 @@ export interface ContractCase {
 export interface BusinessInvariant {
   id: string;
   description: string;
+  type: 'equals' | 'not_equals' | 'in' | 'before' | 'state_transition';
+  left?: string;
+  right?: string;
+  values?: unknown[];
+  from?: string;
+  to?: string;
+  transitions?: Array<{ from: string; to: string }>;
   severity?: 'low' | 'medium' | 'high';
   evidence_refs?: string[];
 }

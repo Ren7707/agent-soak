@@ -8,7 +8,7 @@ import { initAdapter } from '../src/adapters/init.js';
 import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
-import { evaluateContract, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
+import { evaluateContract, evaluateInvariants, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
 import { analyzeSource } from '../src/knowledge/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
@@ -71,6 +71,24 @@ test('semantic contract classifies normalization and acceptance defects separate
   assert.equal(rejection.category, 'unexpected_rejection');
 });
 
+test('business invariants detect field, range, time, and state violations', () => {
+  const invariants = [
+    { id: 'same-owner', description: '所有者一致', type: 'equals', left: 'resource.ownerId', right: 'request.ownerId' },
+    { id: 'valid-status', description: '状态合法', type: 'in', left: 'state', values: ['active', 'deleted'] },
+    { id: 'ordered-window', description: '开始时间早于结束时间', type: 'before', left: 'startAt', right: 'endAt' },
+    { id: 'allowed-transition', description: '状态转换合法', type: 'state_transition', transitions: [{ from: 'active', to: 'deleted' }] },
+  ];
+  assert.equal(evaluateInvariants(invariants, { resource: { ownerId: 'u-1' }, request: { ownerId: 'u-2' }, state: 'archived', startAt: '2026-09-08', endAt: '2026-09-07', previousState: 'deleted' }).length, 4);
+  assert.equal(evaluateInvariants(invariants, { resource: { ownerId: 'u-1' }, request: { ownerId: 'u-1' }, state: 'active', startAt: '2026-09-07', endAt: '2026-09-08', previousState: 'active' }).length, 1);
+});
+
+test('contract evaluation includes invariant violations in deterministic findings', () => {
+  const result = evaluateContract({ status: 'approved', approved: true, invariants: [{ id: 'owner', description: '所有者一致', type: 'equals', left: 'resource.ownerId', right: 'request.ownerId' }] }, { kind: 'relationship', expected: {} }, { resource: { ownerId: 'u-1' }, request: { ownerId: 'u-2' } });
+  assert.equal(result.status, 'confirmed_bug');
+  assert.equal(result.category, 'state_transition_violation');
+  assert.match(result.mismatches[0].field, /invariant:owner/);
+});
+
 test('semantic contract rejects malformed declarations', () => {
   assert.throws(() => validateContract({ fields: [{ path: 'platform' }], cases: [{ kind: 'not-a-kind' }] }), /contract_case_kind_invalid/);
   assert.throws(() => validateContract({ fields: [{ path: 'platform', examples: 'Linux' }] }), /contract_field_examples_must_be_array/);
@@ -79,9 +97,10 @@ test('semantic contract rejects malformed declarations', () => {
   assert.throws(() => validateContract({ fields: [{ path: 'platform', policy: { normalize_case: 'yes' } }] }), /contract_field_policy_normalize_case_invalid/);
   assert.throws(() => validateContract({ fields: [{ path: 'platform', policy: { risk_expected: { accepted: 'no' } } }] }), /contract_field_policy_risk_expected_accepted_invalid/);
   assert.doesNotThrow(() => validateContract({ fields: [{ path: 'platform', policy: { allowed_values: 'known_only', generate_risk_cases: true, risk_expected: { accepted: false, resourceCreated: false } } }] }));
-  assert.doesNotThrow(() => validateContract({ id: 'device', invariants: [{ id: 'no-duplicates', description: '规范化后不得重复', severity: 'high' }], cases: [{ kind: 'lifecycle', sequence: ['create', 'delete'] }] }));
+  assert.doesNotThrow(() => validateContract({ id: 'device', invariants: [{ id: 'no-duplicates', description: '规范化后不得重复', type: 'equals', left: 'resource.key', right: 'request.key', severity: 'high' }], cases: [{ kind: 'lifecycle', sequence: ['create', 'delete'] }] }));
   assert.throws(() => validateContract({ invariants: [{ id: 'broken' }] }), /contract_invariant_invalid/);
   assert.throws(() => validateContract({ cases: [{ kind: 'duplicate', sequence: ['submit'] }] }), /contract_case_sequence_invalid/);
+  assert.throws(() => validateContract({ invariants: [{ id: 'bad', description: '错误', type: 'unknown' }] }), /contract_invariant_type_invalid/);
 });
 
 test('source analysis returns evidence-bound semantic candidates', async () => {
