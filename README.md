@@ -128,6 +128,11 @@ JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资�
 审核确认。源码扫描和模型生成的契约默认为 `draft`，其失败结果只标记为
 `semantic_suspect`，只有审核后的契约才允许报告 `confirmed_bug`。
 
+契约结构可使用仓库根目录的 `contract.schema.json` 进行 JSON Schema 校验。
+契约还可以声明 `invariants` 业务不变量，以及 `lifecycle`、`relationship`、
+`duplicate` 类型的场景案例；这些声明用于约束后续生成器和 Adapter 的执行，
+不会绕过现有写入授权和清理边界。
+
 契约场景应返回可观察结果，例如 `accepted`、`resourceCreated`、`resource`
 或领域自定义状态字段。框架不会把 HTTP 2xx 自动当作业务成功；Adapter
 需要把接口、页面和资源状态转换成这些可断言的观察值。

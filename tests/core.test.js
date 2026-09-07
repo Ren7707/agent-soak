@@ -72,6 +72,8 @@ test('semantic contract rejects malformed declarations', () => {
   assert.throws(() => validateContract({ fields: [{ path: 'platform', policy: { normalize_case: 'yes' } }] }), /contract_field_policy_normalize_case_invalid/);
   assert.throws(() => validateContract({ fields: [{ path: 'platform', policy: { risk_expected: { accepted: 'no' } } }] }), /contract_field_policy_risk_expected_accepted_invalid/);
   assert.doesNotThrow(() => validateContract({ fields: [{ path: 'platform', policy: { allowed_values: 'known_only', generate_risk_cases: true, risk_expected: { accepted: false, resourceCreated: false } } }] }));
+  assert.doesNotThrow(() => validateContract({ id: 'device', invariants: [{ id: 'no-duplicates', description: '规范化后不得重复', severity: 'high' }], cases: [{ kind: 'lifecycle', sequence: ['create', 'delete'] }] }));
+  assert.throws(() => validateContract({ invariants: [{ id: 'broken' }] }), /contract_invariant_invalid/);
 });
 
 test('source analysis returns evidence-bound semantic candidates', async () => {

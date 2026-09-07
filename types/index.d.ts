@@ -25,7 +25,7 @@ export interface ScenarioDeclaration {
   cleanup?: string;
 }
 
-export type SemanticSampleKind = 'valid' | 'boundary' | 'nearby_semantic' | 'wrong_type' | 'missing' | 'normalization' | 'duplicate' | 'relationship';
+export type SemanticSampleKind = 'valid' | 'boundary' | 'nearby_semantic' | 'wrong_type' | 'missing' | 'normalization' | 'duplicate' | 'relationship' | 'lifecycle';
 
 export interface SemanticField {
   path: string;
@@ -45,6 +45,7 @@ export interface SemanticPolicy {
   trim_whitespace?: boolean;
   generate_risk_cases?: boolean;
   reject_unclassified_value?: boolean;
+  unique?: boolean;
   risk_expected?: { accepted?: boolean; resourceCreated?: boolean };
   [key: string]: unknown;
 }
@@ -55,6 +56,14 @@ export interface ContractCase {
   input?: Record<string, unknown>;
   expected?: Record<string, unknown>;
   description?: string;
+  sequence?: string[];
+}
+
+export interface BusinessInvariant {
+  id: string;
+  description: string;
+  severity?: 'low' | 'medium' | 'high';
+  evidence_refs?: string[];
 }
 
 export interface ScenarioContract {
@@ -65,6 +74,8 @@ export interface ScenarioContract {
   fields?: SemanticField[];
   cases?: ContractCase[];
   expected?: Record<string, unknown>;
+  description?: string;
+  invariants?: BusinessInvariant[];
   status?: string;
   review_required?: boolean;
   approved?: boolean;
