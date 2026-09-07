@@ -42,6 +42,7 @@ node src/cli.js --version --json
 - JSON、Markdown、JUnit XML、HTML 报告
 - Manifest 自动校验和 YAML 支持
 - 通过 `init-adapter` 快速创建平台适配器模板
+- 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 
 ## 平台接入
 
@@ -75,6 +76,50 @@ adapters/<平台ID>/
 
 Adapter 的公开 TypeScript 类型位于 `types/index.d.ts`。即使适配器使用
 JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资源上下文。
+
+## 语义契约测试
+
+普通场景只能证明“操作完成”。对于真实产品，还需要验证字段含义和操作
+后的业务状态。Adapter 场景可以声明 `contract`，框架会生成合法值、
+邻近语义值、大小写/空白变体和缺失值，并把每个样本通过 `testCase` 传给
+场景执行函数。
+
+```js
+{
+  id: 'register-device',
+  contract: {
+    fields: [{
+      path: 'platform',
+      semantic_type: 'operating_system_platform',
+      examples: ['windows', 'macos', 'linux'],
+      negative_examples: ['test computer 0001', 'office workstation'],
+      policy: { normalize_case: true, trim_whitespace: true }
+    }]
+  },
+  async run({ testCase }) {
+    const response = await registerDevice(testCase.input);
+    return {
+      accepted: response.ok,
+      resourceCreated: Boolean(response.body?.id),
+      resource: response.body
+    };
+  }
+}
+```
+
+场景返回的 `accepted` 和 `resourceCreated` 会与契约预期比较。若证据表明
+字段是操作系统平台，但设备名称一类的值仍被接受并持久化，报告会标记为
+`confirmed_bug` / `semantic_constraint_missing`，而不是只报告注册流程成功。
+如果产品明确允许任意自定义平台名称，应在契约中将其建模为合法策略，避免
+把合理的业务行为误报为缺陷。
+
+契约测试也适用于邮箱、状态、版本、日期、金额、权限、资源关系、生命周期
+和幂等性等问题。大模型可以从源码和页面生成候选契约，但最终结论仍由
+确定性断言、运行状态和脱敏证据共同决定。
+
+契约场景应返回可观察结果，例如 `accepted`、`resourceCreated`、`resource`
+或领域自定义状态字段。框架不会把 HTTP 2xx 自动当作业务成功；Adapter
+需要把接口、页面和资源状态转换成这些可断言的观察值。
 
 参考 [适配器模板](templates/adapter.md) 和
 [架构设计](docs/design/2026-09-03-universal-soak-framework.md)。

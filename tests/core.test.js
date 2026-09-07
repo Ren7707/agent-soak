@@ -8,8 +8,33 @@ import { initAdapter } from '../src/adapters/init.js';
 import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
+import { evaluateContract, generateContractCases, validateContract } from '../src/contracts/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
+
+test('semantic contract generates nearby, normalization, and missing cases', () => {
+  const cases = generateContractCases({ fields: [{ path: 'platform', semantic_type: 'operating_system_platform', examples: ['linux'], negative_examples: ['test computer 0001'], policy: { normalize_case: true, trim_whitespace: true } }] });
+  assert.deepEqual(cases.map((item) => item.kind), ['valid', 'nearby_semantic', 'normalization', 'normalization', 'missing']);
+  assert.equal(cases.find((item) => item.kind === 'nearby_semantic').expected.accepted, false);
+});
+
+test('semantic contract detects a semantically wrong value accepted and persisted', () => {
+  const contract = { field: 'platform', semantic_type: 'operating_system_platform' };
+  const result = evaluateContract(contract, { kind: 'nearby_semantic', input: { platform: 'test computer 0001' }, expected: { accepted: false, resourceCreated: false } }, { accepted: true, resourceCreated: true, resource: { id: '1', platform: 'test computer 0001' } });
+  assert.equal(result.status, 'confirmed_bug');
+  assert.equal(result.category, 'semantic_constraint_missing');
+  assert.equal(result.ok, false);
+});
+
+test('semantic contract accepts explicitly allowed custom values without a false positive', () => {
+  const contract = { field: 'platform', semantic_type: 'operating_system_platform' };
+  const result = evaluateContract(contract, { kind: 'valid', input: { platform: 'AcmeOS' }, expected: { accepted: true, resourceCreated: true } }, { accepted: true, resourceCreated: true });
+  assert.equal(result.ok, true);
+});
+
+test('semantic contract rejects malformed declarations', () => {
+  assert.throws(() => validateContract({ fields: [{ path: 'platform' }], cases: [{ kind: 'not-a-kind' }] }), /contract_case_kind_invalid/);
+});
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));
 test('manifest validation rejects undeclared capabilities', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly', capabilities: ['missing'] }] }), /manifest_unknown_capability/));

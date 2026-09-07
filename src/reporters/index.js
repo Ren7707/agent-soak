@@ -28,10 +28,10 @@ function markdown(result) {
 function junit(result) {
   const cases = (result.scenarios || []).map((item) => {
     const status = item.status || (item.ok ? 'passed' : 'failed');
-    const body = status === 'skipped' ? '<skipped/>' : status === 'failed' ? `<failure type="${escapeXml(item.category || 'script')}" message="${escapeXml(item.error || 'failed')}"/>` : '';
+    const body = status === 'skipped' ? '<skipped/>' : item.ok === false ? `<failure type="${escapeXml(item.category || item.contract?.category || 'script')}" message="${escapeXml(item.error || item.contract?.status || 'failed')}"/>` : '';
     return `<testcase name="${escapeXml(`${item.id} round ${item.round}`)}" time="${Number(item.durationMs || 0) / 1000}">${body}</testcase>`;
   }).join('');
-  const failures = (result.scenarios || []).filter((item) => (item.status || (item.ok ? 'passed' : 'failed')) === 'failed').length;
+  const failures = (result.scenarios || []).filter((item) => item.ok === false).length;
   return `<?xml version="1.0" encoding="UTF-8"?><testsuite name="agent-soak" tests="${result.scenarios?.length || 0}" failures="${failures}">${cases}</testsuite>`;
 }
 

@@ -4,6 +4,7 @@ import { resolveBaseUrl } from '../manifest.js';
 import { ResourceRegistry, createRunId } from '../resources/registry.js';
 import { BrowserSession } from '../browser/session.js';
 import { writePreflight, writeReports } from '../reporters/index.js';
+import { evaluateContract, generateContractCases } from '../contracts/index.js';
 
 export async function runSoak({ manifest, adapter, args, artifactDir, processRef = process }) {
   const mode = modeFrom(args);
@@ -55,7 +56,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
     schedule = await runSchedule({ ...target, intervalMs: args.interval ? parseDuration(String(args.interval)) : 0, signal: controller.signal, onRound: async (round) => {
       for (const entry of selected) {
         if (controller.signal.aborted) break;
-        scenarios.push(await runScenario(entry, { baseUrl, runId, round, signal: controller.signal, supervised: args.supervise === true, browser, registry, manifest }));
+        scenarios.push(...await runScenario(entry, { baseUrl, runId, round, signal: controller.signal, supervised: args.supervise === true, browser, registry, manifest }));
       }
       await registry.persist();
     }});
@@ -76,6 +77,14 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
 }
 
 async function runScenario(entry, context) {
+  const contract = entry.implementation.contract;
+  const cases = contract ? generateContractCases(contract) : [{ id: 'baseline', kind: 'valid', input: {}, expected: {} }];
+  const results = [];
+  for (const testCase of cases) results.push(await runScenarioCase(entry, context, contract, testCase));
+  return results;
+}
+
+async function runScenarioCase(entry, context, contract, testCase) {
   const started = Date.now();
   const retries = entry.manifest.retries || 0;
   let lastError;
@@ -83,15 +92,16 @@ async function runScenario(entry, context) {
   for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
     attempts = attempt;
     try {
-      const details = await runScenarioAttempt(entry, context);
+      const details = await runScenarioAttempt(entry, { ...context, testCase });
       if (details?.ok === false) throw new Error(details.error || 'scenario_failed');
-      return { id: entry.implementation.id, round: context.round, status: 'passed', ok: true, attempts: attempt, durationMs: Date.now() - started, details };
+      const contractResult = contract ? evaluateContract(contract, testCase, details) : { ok: true, status: 'passed' };
+      return { id: entry.implementation.id, caseId: testCase.id, kind: testCase.kind, round: context.round, status: contractResult.status, ok: contractResult.ok, attempts: attempt, durationMs: Date.now() - started, details, ...(contract ? { contract: contractResult } : {}) };
     } catch (error) {
       lastError = error;
       if (context.signal.aborted || attempt > retries) break;
     }
   }
-  return { id: entry.implementation.id, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError) };
+  return { id: entry.implementation.id, caseId: testCase.id, kind: testCase.kind, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError) };
 }
 
 async function runScenarioAttempt(entry, context) {

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs/promises';
+import { validateContract } from '../contracts/index.js';
 
 export async function loadAdapter(manifestPath, manifest, options = {}) {
   const adapterPath = path.resolve(path.dirname(manifestPath), manifest.adapter);
@@ -27,7 +28,13 @@ function validateAdapter(adapter, manifest) {
     if (!scenario || typeof scenario.id !== 'string' || typeof scenario.run !== 'function') throw new Error('adapter_scenario_invalid');
     if (implemented.has(scenario.id)) throw new Error(`adapter_duplicate_scenario: ${scenario.id}`);
     if (!declared.has(scenario.id)) throw new Error(`adapter_scenario_not_declared: ${scenario.id}`);
+    if (scenario.contract) validateContract(scenario.contract);
     implemented.add(scenario.id);
   }
   for (const id of declared) if (!implemented.has(id)) throw new Error(`adapter_scenario_missing: ${id}`);
+  if (adapter.contracts !== undefined) {
+    if (!Array.isArray(adapter.contracts) && (typeof adapter.contracts !== 'object' || adapter.contracts === null)) throw new Error('adapter_contracts_invalid');
+    const contracts = Array.isArray(adapter.contracts) ? adapter.contracts : Object.values(adapter.contracts);
+    for (const contract of contracts) validateContract(contract);
+  }
 }

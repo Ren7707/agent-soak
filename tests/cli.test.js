@@ -85,6 +85,21 @@ test('CLI turns a scenario timeout into a failed result', async () => {
   }
 });
 
+test('CLI reports a semantic contract bug when a nearby value is accepted', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-semantic-'));
+  try {
+    await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify({ schema_version: 1, adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'register-device', mode: 'readonly' }] }));
+    await fs.writeFile(path.join(cwd, 'adapter.js'), `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'register-device', contract: { field: 'platform', semantic_type: 'operating_system_platform', cases: [{ id: 'nearby-device-name', kind: 'nearby_semantic', input: { platform: 'test computer 0001' }, expected: { accepted: false, resourceCreated: false } }] }, async run({ testCase }) { return { accepted: true, resourceCreated: true, resource: { platform: testCase.input.platform } }; } }], async deleteResource() {} }; }`);
+    const result = await runCli(['run', '--rounds', '1', '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 4);
+    assert.equal(body.scenarios[0].status, 'confirmed_bug');
+    assert.equal(body.scenarios[0].contract.category, 'semantic_constraint_missing');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 function runCli(args, { cwd, env = process.env }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], { cwd, env: { ...process.env, ...env } });

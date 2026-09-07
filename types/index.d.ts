@@ -25,6 +25,35 @@ export interface ScenarioDeclaration {
   cleanup?: string;
 }
 
+export type SemanticSampleKind = 'valid' | 'boundary' | 'nearby_semantic' | 'wrong_type' | 'missing' | 'normalization' | 'duplicate' | 'relationship';
+
+export interface SemanticField {
+  path: string;
+  semantic_type?: string;
+  examples?: unknown[];
+  negative_examples?: unknown[];
+  required?: boolean;
+  policy?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ContractCase {
+  id?: string;
+  kind?: SemanticSampleKind;
+  input?: Record<string, unknown>;
+  expected?: Record<string, unknown>;
+  description?: string;
+}
+
+export interface ScenarioContract {
+  field?: string;
+  semantic_type?: string;
+  policy?: Record<string, unknown>;
+  fields?: SemanticField[];
+  cases?: ContractCase[];
+  expected?: Record<string, unknown>;
+}
+
 export interface AdapterContext {
   manifest: PlatformManifest;
   baseUrl: string;
@@ -34,10 +63,12 @@ export interface AdapterContext {
   browser?: unknown;
   registry?: ResourceRegistry;
   scenario?: ScenarioDeclaration;
+  testCase?: ContractCase;
 }
 
 export interface AdapterScenario {
   id: string;
+  contract?: ScenarioContract;
   run(context: AdapterContext): Promise<Record<string, unknown> | void>;
 }
 
@@ -60,6 +91,7 @@ export interface Adapter {
   preflight(context: AdapterContext): Promise<Record<string, unknown> | void>;
   discover(context: AdapterContext): Promise<Record<string, unknown>>;
   scenarios: AdapterScenario[];
+  contracts?: ScenarioContract[] | Record<string, ScenarioContract>;
   deleteResource(resource: Resource, context: AdapterContext): Promise<void>;
   scanResidue?(context: AdapterContext): Promise<unknown[]>;
 }
