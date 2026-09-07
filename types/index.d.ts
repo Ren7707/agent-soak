@@ -54,6 +54,15 @@ export interface ScenarioContract {
   expected?: Record<string, unknown>;
 }
 
+export interface SourceAnalysisResult {
+  ok: boolean;
+  command: 'analyze';
+  root: string;
+  files: string[];
+  evidence: Array<Record<string, unknown>>;
+  candidates: Array<Record<string, unknown>>;
+}
+
 export interface AdapterContext {
   manifest: PlatformManifest;
   baseUrl: string;

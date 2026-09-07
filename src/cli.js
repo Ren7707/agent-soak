@@ -9,6 +9,7 @@ import { ERROR_CODES, EXIT_CODES, exitCodeForResult, resultCode } from './core/e
 import { loadManifest, manifestPathFrom, resolveBaseUrl } from './manifest.js';
 import { ResourceRegistry } from './resources/registry.js';
 import { runSoak } from './runner/run.js';
+import { analyzeSource } from './knowledge/index.js';
 
 const PACKAGE_VERSION = JSON.parse(await fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8')).version;
 const HELP = `agent-soak <command> [options]
@@ -19,6 +20,7 @@ Commands:
   discover                Ask the adapter for capabilities and live metadata
   validate                Run configuration and service preflight checks
   doctor                  Check runtime, manifest, adapter, and local prerequisites
+  analyze                 Scan authorized source and produce evidence-bound rule candidates
   run                     Run scenarios by round count or duration
   cleanup                 Retry cleanup for a previous run
   residue                 Find pending cleanup records in an artifact directory
@@ -51,6 +53,7 @@ export async function main(argv = process.argv.slice(2)) {
     const manifestPath = manifestPathFrom(process.cwd(), String(args.manifest || 'platform.manifest.json'));
     if (args.command === 'init-adapter') return finish(await initAdapter({ cwd: process.cwd(), id: args.positionals[0], force: args.force === true }), wantsJson);
     if (args.positionals.length) throw new Error(`argument_unknown: ${args.positionals[0]}`);
+    if (args.command === 'analyze') return print(await analyzeSource({ root: path.resolve(String(args.source || process.cwd())) }), wantsJson);
     const manifest = await loadManifest(manifestPath);
     if (args.command === 'inspect') return print({ ok: true, command: 'inspect', manifest }, wantsJson);
     if (args.command === 'residue' && args.remote !== true) return finish(await residue(args), wantsJson);
@@ -110,7 +113,7 @@ function assertWriteAllowed(manifest, args) { if (manifest.platform.production =
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
 function codeFromError(error) { return (error instanceof Error ? error.message : String(error)).split(':')[0]; }
 function finish(result, json) { const code = resultCode(result); print({ ...result, ...(code ? { code } : {}) }, json); if (result.ok !== false) return EXIT_CODES.success; if (['validate', 'discover', 'doctor'].includes(result.command) || result.status === 'preflight_failed') return EXIT_CODES.preflight; if (['cleanup', 'residue'].includes(result.command)) return EXIT_CODES.cleanup; return exitCodeForResult(result); }
-function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force', 'version']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'artifacts', 'prefix']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = rawName.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
+function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force', 'version']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'artifacts', 'prefix', 'source']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = rawName.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
 function print(value, json) { console.log(json ? JSON.stringify(value) : JSON.stringify(value, null, 2)); return EXIT_CODES.success; }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();

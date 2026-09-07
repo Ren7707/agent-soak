@@ -41,6 +41,9 @@ src/
   core/        run context, events, scheduler, exit codes
   browser/     Playwright lifecycle and audited operations
   resources/   registration, cleanup, residue detection
+  knowledge/   authorized source evidence and semantic candidates
+  contracts/   semantic contracts and deterministic assertions
+  generators/  semantic and boundary test case generation
   adapters/    manifest validation and adapter loading
   reporters/   JSON, JUnit, Markdown, HTML
   cli/         inspect, discover, validate, run, cleanup, residue
@@ -80,6 +83,7 @@ agent-soak run --duration 10m --mode write --allow-writes
 agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
 agent-soak doctor --json
+agent-soak analyze --source <authorized-source-directory> --json
 ```
 
 Scenario declarations can include `timeout_ms` and `retries`. The runner passes
@@ -90,6 +94,11 @@ reporting success.
 Commands return stable non-zero exit codes for invalid input, preflight
 failure, scenario failure, cancellation, and cleanup failure. `--json` emits a
 single structured result suitable for an Agent.
+
+`analyze` is read-only. It scans an explicitly authorized source directory and
+returns evidence-bound candidate fields with file paths, line numbers, observed
+values, semantic type guesses, and confidence. Candidates must be reviewed or
+converted into a contract before they become test expectations.
 
 ## Verification
 

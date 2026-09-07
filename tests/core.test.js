@@ -9,6 +9,7 @@ import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
 import { evaluateContract, generateContractCases, validateContract } from '../src/contracts/index.js';
+import { analyzeSource } from '../src/knowledge/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
 
@@ -34,6 +35,22 @@ test('semantic contract accepts explicitly allowed custom values without a false
 
 test('semantic contract rejects malformed declarations', () => {
   assert.throws(() => validateContract({ fields: [{ path: 'platform' }], cases: [{ kind: 'not-a-kind' }] }), /contract_case_kind_invalid/);
+});
+
+test('source analysis returns evidence-bound semantic candidates', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-analysis-'));
+  try {
+    await fs.writeFile(path.join(dir, 'device-form.tsx'), "const platformOptions = ['Windows', 'macOS', 'Linux'];\nconst platform = 'platform';\n");
+    await fs.mkdir(path.join(dir, 'node_modules'));
+    await fs.writeFile(path.join(dir, 'node_modules', 'ignored.js'), "const platformOptions = ['secret'];\n");
+    const result = await analyzeSource({ root: dir });
+    assert.deepEqual(result.files, ['device-form.tsx']);
+    assert.equal(result.candidates[0].semantic_type, 'operating_system_platform');
+    assert.deepEqual(result.candidates[0].examples, ['Windows', 'macOS', 'Linux']);
+    assert.equal(result.evidence[0].line, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));

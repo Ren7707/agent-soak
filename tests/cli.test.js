@@ -21,6 +21,20 @@ test('CLI exposes the package version as JSON', async () => {
   assert.equal(JSON.parse(result.stdout).version, '0.1.0');
 });
 
+test('CLI analyze scans an explicit source directory without loading a target manifest', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-analyze-'));
+  try {
+    await fs.writeFile(path.join(cwd, 'form.tsx'), "const platformOptions = ['Windows', 'Linux'];\n");
+    const result = await runCli(['analyze', '--source', cwd, '--json'], { cwd: path.dirname(cwd) });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 0);
+    assert.equal(body.command, 'analyze');
+    assert.equal(body.candidates[0].field, 'platform');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI doctor reports missing environment prerequisites', async () => {
   const cwd = fileURLToPath(new URL('..', import.meta.url));
   const result = await runCli(['doctor', '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: '' } });

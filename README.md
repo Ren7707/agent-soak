@@ -26,6 +26,7 @@ node src/cli.js run --rounds 2 --mode write --allow-writes --json
 node src/cli.js residue --json
 node src/cli.js doctor --json
 node src/cli.js --version --json
+node src/cli.js analyze --source ./src --json
 ```
 
 测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML 和 HTML。
@@ -135,6 +136,7 @@ agent-soak run --rounds 10
 agent-soak run --duration 10m
 agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
+agent-soak analyze --source <授权源码目录> --json
 ```
 
 所有命令都支持 `--json`，便于 Agent 或 CI 读取结构化结果。
@@ -143,6 +145,10 @@ agent-soak residue --json
 
 `doctor` 用于检查 Node.js、Manifest、Adapter 和基础环境变量；需要浏览器时
 可增加 `--browser` 检查 Playwright 是否可加载。
+
+analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录，输出字段
+引用、源码行号、观察到的枚举值和候选语义类型，供人工审阅或后续大模型
+生成契约使用。候选规则不是最终产品规则，不会直接改变测试结果。
 
 ## 安全边界
 
