@@ -132,7 +132,10 @@ async function runScenarioCase(entry, context, contract, testCase) {
 async function runScenarioAttempt(entry, context) {
   const timeoutMs = entry.manifest.timeout_ms;
   const run = async (runContext) => {
-    const details = await entry.implementation.run({ ...runContext, scenario: entry.manifest });
+    const executor = runContext.testCase?.sequence?.length > 1 && typeof entry.implementation.runSequence === 'function'
+      ? entry.implementation.runSequence
+      : entry.implementation.run;
+    const details = await executor({ ...runContext, scenario: entry.manifest });
     if (typeof entry.observe !== 'function') return details;
     const observed = await entry.observe({ ...runContext, phase: 'scenario', scenario: entry.manifest, result: details });
     if (!observed || typeof observed !== 'object' || Array.isArray(observed)) return details;

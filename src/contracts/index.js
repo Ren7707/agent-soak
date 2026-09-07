@@ -19,13 +19,13 @@ export function evaluateContract(contract, testCase, details) {
     if (!Object.is(actual[key], expectedValue)) mismatches.push({ field: key, expected: expectedValue, actual: actual[key] });
   }
   if (mismatches.length === 0) return { ok: true, status: 'passed', mismatches: [] };
-  const semantic = ['nearby_semantic', 'wrong_type', 'missing', 'normalization', 'duplicate', 'relationship'].includes(testCase.kind);
+  const semantic = ['nearby_semantic', 'wrong_type', 'missing', 'normalization', 'duplicate', 'relationship', 'lifecycle'].includes(testCase.kind);
   const acceptanceMismatch = mismatches.find((item) => item.field === 'accepted');
   const statusMismatch = mismatches.find((item) => item.field === 'resourceCreated' || item.field === 'state' || item.field === 'normalizedValue');
   let category = 'contract_assertion_failed';
   if (['nearby_semantic', 'wrong_type', 'missing'].includes(testCase.kind)) category = 'semantic_constraint_missing';
   else if (testCase.kind === 'normalization') category = 'normalization_inconsistency';
-  else if (testCase.kind === 'duplicate' || testCase.kind === 'relationship') category = 'state_transition_violation';
+  else if (testCase.kind === 'duplicate' || testCase.kind === 'relationship' || testCase.kind === 'lifecycle') category = 'state_transition_violation';
   else if (acceptanceMismatch?.expected === false && acceptanceMismatch.actual === true) category = 'unexpected_acceptance';
   else if (acceptanceMismatch?.expected === true && acceptanceMismatch.actual === false) category = 'unexpected_rejection';
   else if (statusMismatch) category = 'state_transition_violation';
@@ -52,6 +52,7 @@ function generateFieldCases(field) {
   const cases = values.map((value, index) => ({ id: `${field.path}-valid-${index + 1}`, kind: 'valid', input: { [field.path]: value }, expected: field.valid_expected || { accepted: true, resourceCreated: true } }));
   for (const value of field.negative_examples || []) cases.push({ id: `${field.path}-nearby-${cases.length + 1}`, kind: 'nearby_semantic', input: { [field.path]: value }, expected: field.negative_expected || { accepted: false, resourceCreated: false } });
   cases.push(...generateRiskCases(field));
+  if (policy.unique && values.length > 0) cases.push({ id: `${field.path}-duplicate`, kind: 'duplicate', input: { [field.path]: values[0] }, sequence: ['submit', 'submit'], expected: field.duplicate_expected || { accepted: false, resourceCreated: false }, description: '重复提交同一业务标识不得产生重复资源' });
   if (policy.normalize_case && typeof values[0] === 'string') cases.push({ id: `${field.path}-normalization-case`, kind: 'normalization', input: { [field.path]: values[0].toUpperCase() }, expected: field.normalization_expected || { accepted: true, resourceCreated: true } });
   if (policy.trim_whitespace && typeof values[0] === 'string') cases.push({ id: `${field.path}-normalization-space`, kind: 'normalization', input: { [field.path]: ` ${values[0]} ` }, expected: field.normalization_expected || { accepted: true, resourceCreated: true } });
   if (field.required !== false) cases.push({ id: `${field.path}-missing`, kind: 'missing', input: {}, expected: field.missing_expected || { accepted: false, resourceCreated: false } });
@@ -60,7 +61,7 @@ function generateFieldCases(field) {
 
 function normalizeCase(item, index) {
   validateCase(item);
-  return { id: item.id || `case-${index + 1}`, kind: item.kind || 'valid', input: item.input || {}, expected: item.expected || {}, description: item.description };
+  return { id: item.id || `case-${index + 1}`, kind: item.kind || 'valid', input: item.input || {}, expected: item.expected || {}, description: item.description, ...(item.sequence ? { sequence: item.sequence } : {}) };
 }
 
 function dedupeCases(cases) {

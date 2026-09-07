@@ -19,6 +19,13 @@ test('semantic contract generates nearby, normalization, and missing cases', () 
   assert.equal(cases.find((item) => item.kind === 'nearby_semantic').expected.accepted, false);
 });
 
+test('semantic contract generates an executable duplicate sequence for unique fields', () => {
+  const cases = generateContractCases({ fields: [{ path: 'name', examples: ['same-name'], policy: { unique: true } }] });
+  const duplicate = cases.find((item) => item.kind === 'duplicate');
+  assert.deepEqual(duplicate.sequence, ['submit', 'submit']);
+  assert.equal(duplicate.expected.accepted, false);
+});
+
 test('risk library generates cross-domain values only when policy enables it', () => {
   assert.equal(generateRiskCases({ path: 'platform', semantic_type: 'operating_system_platform' }).length, 0);
   const cases = generateRiskCases({ path: 'platform', semantic_type: 'operating_system_platform', policy: { reject_unclassified_value: true } });
@@ -74,6 +81,7 @@ test('semantic contract rejects malformed declarations', () => {
   assert.doesNotThrow(() => validateContract({ fields: [{ path: 'platform', policy: { allowed_values: 'known_only', generate_risk_cases: true, risk_expected: { accepted: false, resourceCreated: false } } }] }));
   assert.doesNotThrow(() => validateContract({ id: 'device', invariants: [{ id: 'no-duplicates', description: '规范化后不得重复', severity: 'high' }], cases: [{ kind: 'lifecycle', sequence: ['create', 'delete'] }] }));
   assert.throws(() => validateContract({ invariants: [{ id: 'broken' }] }), /contract_invariant_invalid/);
+  assert.throws(() => validateContract({ cases: [{ kind: 'duplicate', sequence: ['submit'] }] }), /contract_case_sequence_invalid/);
 });
 
 test('source analysis returns evidence-bound semantic candidates', async () => {

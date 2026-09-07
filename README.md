@@ -77,6 +77,7 @@ adapters/<平台ID>/
 - `deleteResource`
 - 可选的 `scanResidue`
 - 可选的 `observe`，用于在操作后读取权威业务状态
+- 可选的 `runSequence`，用于执行重复提交、生命周期和关系场景
 
 Adapter 的公开 TypeScript 类型位于 `types/index.d.ts`。即使适配器使用
 JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资源上下文。
@@ -132,6 +133,9 @@ JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资�
 契约还可以声明 `invariants` 业务不变量，以及 `lifecycle`、`relationship`、
 `duplicate` 类型的场景案例；这些声明用于约束后续生成器和 Adapter 的执行，
 不会绕过现有写入授权和清理边界。
+
+当案例包含至少两个 `sequence` 步骤时，Runner 会优先调用 Adapter 的
+`runSequence`；没有该钩子时仍回退到普通 `run`，保证旧 Adapter 兼容。
 
 契约场景应返回可观察结果，例如 `accepted`、`resourceCreated`、`resource`
 或领域自定义状态字段。框架不会把 HTTP 2xx 自动当作业务成功；Adapter

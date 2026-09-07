@@ -39,6 +39,11 @@ export function createAdapter({ manifest, baseUrl, registry }) {
           // Return deterministic observations for contract assertions.
           observer?.recordRequest({ method: 'POST', url: '/domain-entities', body: testCase.input });
           return { accepted: true, resourceCreated: false, input: testCase.input };
+        },
+        async runSequence({ testCase, observer }) {
+          // Cases with testCase.sequence use this hook for duplicate/lifecycle flows.
+          observer?.recordAssertion({ name: 'sequence', actual: testCase.sequence, status: 'observed' });
+          return { accepted: false, resourceCreated: false, input: testCase.input };
         }
       }
       }

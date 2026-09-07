@@ -129,6 +129,7 @@ export interface AdapterScenario {
   id: string;
   contract?: ScenarioContract;
   run(context: AdapterContext): Promise<Record<string, unknown> | void>;
+  runSequence?(context: AdapterContext): Promise<Record<string, unknown> | void>;
 }
 
 export interface Resource {

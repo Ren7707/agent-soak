@@ -47,6 +47,7 @@ export function validateCase(item) {
   if (item.kind !== undefined && !SAMPLE_KINDS.has(item.kind)) throw new Error(`contract_case_kind_invalid: ${item.kind}`);
   if (item.input !== undefined && (typeof item.input !== 'object' || Array.isArray(item.input))) throw new Error('contract_case_input_invalid');
   if (item.expected !== undefined && (typeof item.expected !== 'object' || Array.isArray(item.expected))) throw new Error('contract_case_expected_invalid');
+  if (item.sequence !== undefined && (!Array.isArray(item.sequence) || item.sequence.length < 2 || item.sequence.some((step) => typeof step !== 'string' || !step))) throw new Error('contract_case_sequence_invalid');
 }
 
 function validateInvariant(item) {
