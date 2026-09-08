@@ -237,6 +237,7 @@ Trace 或生产报告。
 
 ```powershell
 npm test
+npm run check
 ```
 
 当前项目使用 Node.js 20 或更高版本。

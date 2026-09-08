@@ -10,6 +10,7 @@
   },
   "scripts": {
     "test": "node --test",
+    "check": "node --check src/cli.js && node --check src/runner/run.js && node --check src/plans/scaffold.js && node --check src/reports/compare.js && node -e \"for (const f of ['platform.manifest.schema.json','contract.schema.json','test-plan.schema.json']) JSON.parse(require('fs').readFileSync(f,'utf8')); console.log('schemas ok')\" && git diff --check",
     "demo": "node examples/demo-platform/server.js",
     "inspect": "node src/cli.js inspect",
     "analyze": "node src/cli.js analyze --json",
