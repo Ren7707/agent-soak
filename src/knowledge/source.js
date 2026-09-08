@@ -45,22 +45,38 @@ async function collectFiles(directory, result, maxFiles) {
 
 function extractEvidence(root, file, content, fileIndex) {
   const relative = path.relative(root, file).replaceAll('\\', '/');
+  const lines = content.split(/\r?\n/);
+  const source = classifySource(relative, content);
   const result = [];
-  content.split(/\r?\n/).forEach((line, index) => {
+  lines.forEach((line, index) => {
     let occurrence = 0;
-    for (const match of line.matchAll(/\b(platform|os|email|username|status|version|amount|quantity|timezone)(?:Options|Values|Types|Names)?\b/gi)) {
+    for (const match of line.matchAll(/\b(platform|os|email|username|status|version|amount|quantity|timezone)(?:Options|Values|Types|Names|Schema|Validator)?\b/gi)) {
       occurrence += 1;
       const field = match[1].toLowerCase();
-      const values = valuesNear(line, match.index + match[0].length);
-      result.push({ id: `evidence-${fileIndex + 1}-${index + 1}-${occurrence}`, source: 'source', file: relative, line: index + 1, kind: values.length ? 'field_values' : 'field_reference', field, semantic_type: SEMANTIC_ALIASES[field], values, snippet: line.trim().slice(0, 300), confidence: values.length ? 0.9 : 0.65 });
+      const values = valuesNear(lines, index, match.index + match[0].length);
+      result.push({ id: `evidence-${fileIndex + 1}-${index + 1}-${occurrence}`, source, file: relative, line: index + 1, kind: values.length ? 'field_values' : 'field_reference', field, semantic_type: SEMANTIC_ALIASES[field], values, snippet: snippetNear(lines, index), confidence: values.length ? 0.9 : 0.65 });
     }
   });
   return result;
 }
 
-function valuesNear(line, offset) {
-  const bracket = line.slice(offset).match(/[=:]\s*\[([^\]]+)\]/);
+function valuesNear(lines, lineIndex, offset) {
+  const window = lines.slice(lineIndex, Math.min(lines.length, lineIndex + 5)).join(' ');
+  const current = lines[lineIndex].slice(offset);
+  const context = `${current} ${window}`;
+  const bracket = context.match(/(?:[=:]\s*(?:z\.enum\s*\(|enum\s*)?|\()[ ]*\[([^\]]+)\]/);
   return bracket ? [...bracket[1].matchAll(/['"`]([^'"`\n]{1,80})['"`]/g)].map((match) => match[1]) : [];
+}
+
+function snippetNear(lines, lineIndex) { return lines.slice(lineIndex, Math.min(lines.length, lineIndex + 3)).join(' ').trim().slice(0, 300); }
+
+function classifySource(relative, content) {
+  const value = `${relative}\n${content}`.toLowerCase();
+  if (/openapi|swagger|schema\.json|components:\s*schemas/.test(value)) return 'openapi';
+  if (/validator|validation|zod|joi|yup|class-validator|dto/.test(value)) return 'backend_validator';
+  if (/react|vue|svelte|tsx|jsx|<select|option|label|form/.test(value)) return 'frontend';
+  if (/fetch\(|axios|request\(|response\.|statuscode/.test(value)) return 'runtime';
+  return 'source';
 }
 
 function mergeCandidates(evidence) {

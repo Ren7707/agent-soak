@@ -132,6 +132,24 @@ test('source analysis returns evidence-bound semantic candidates', async () => {
   }
 });
 
+test('source analysis captures multiline values and provenance categories', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-provenance-'));
+  try {
+    await fs.writeFile(path.join(dir, 'device-form.tsx'), "const platformOptions = [\n  'Windows',\n  'Linux'\n];\n<label>Platform</label>\n");
+    await fs.writeFile(path.join(dir, 'device.validator.ts'), "const platformSchema = z.enum([\n  'Windows',\n  'Linux',\n  'AcmeOS'\n]);\n");
+    const result = await analyzeSource({ root: dir });
+    const formEvidence = result.evidence.find((item) => item.file === 'device-form.tsx' && item.field === 'platform' && item.values.length);
+    const validatorEvidence = result.evidence.find((item) => item.file === 'device.validator.ts' && item.field === 'platform' && item.values.length);
+    assert.deepEqual(formEvidence.values, ['Windows', 'Linux']);
+    assert.equal(formEvidence.source, 'frontend');
+    assert.deepEqual(validatorEvidence.values, ['Windows', 'Linux', 'AcmeOS']);
+    assert.equal(validatorEvidence.source, 'backend_validator');
+    assert.ok(formEvidence.snippet.includes('Windows'));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('contract synthesis creates reviewable draft contracts from analysis', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-contract-synthesis-'));
   try {
