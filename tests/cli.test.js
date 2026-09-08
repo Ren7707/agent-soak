@@ -70,6 +70,31 @@ test('CLI conflicts reports ambiguous source rules without selecting a winner', 
   }
 });
 
+test('CLI approve records an auditable plan decision and blocks unresolved conflicts', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-approve-'));
+  try {
+    const inputPath = path.join(cwd, 'draft.json');
+    const conflictPath = path.join(cwd, 'conflicts.json');
+    const outputPath = path.join(cwd, 'approved.json');
+    const draft = { version: 1, status: 'draft', review_required: true, approved: false, contracts: [{ id: 'device', field: 'platform', status: 'draft', review_required: true, approved: false }], scenarios: [{ id: 'register-device', contract_id: 'device' }] };
+    await fs.writeFile(inputPath, JSON.stringify(draft));
+    await fs.writeFile(conflictPath, JSON.stringify({ findings: [{ status: 'review_required', category: 'semantic_boundary_ambiguous' }] }));
+    const blocked = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--conflicts', conflictPath, '--reviewer', 'owner', '--reason', '需要确认平台字段是否允许自定义系统名称', '--json'], { cwd });
+    assert.equal(blocked.code, 2);
+    assert.match(JSON.parse(blocked.stdout).detail_code, /approval_conflicts_require_decision/);
+    const approved = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--conflicts', conflictPath, '--reviewer', 'owner', '--reason', '已确认产品允许自定义系统名称并接受该边界', '--allow-ambiguous', '--json'], { cwd });
+    const body = JSON.parse(approved.stdout);
+    assert.equal(approved.code, 0);
+    assert.equal(body.status, 'approved');
+    const saved = JSON.parse(await fs.readFile(outputPath, 'utf8'));
+    assert.equal(saved.approval.reviewer, 'owner');
+    assert.equal(saved.approval.conflict_override, true);
+    assert.equal(saved.contracts[0].review_required, false);
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI plan normalizes a model plan and checks evidence references', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-plan-'));
   try {
