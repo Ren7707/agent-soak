@@ -1,1 +1,1 @@
-export { normalizeModelPlan, validateModelPlan } from './model.js';
+export { normalizeModelPlan, normalizeModelPlanFile, validateModelPlan } from './model.js';

@@ -28,6 +28,7 @@ node src/cli.js doctor --json
 node src/cli.js --version --json
 node src/cli.js analyze --source ./src --output ./artifacts/source-analysis.json --json
 node src/cli.js contract --analysis ./artifacts/source-analysis.json --output ./artifacts/contracts.json --json
+node src/cli.js plan --input ./artifacts/model-plan.json --evidence ./artifacts/source-analysis.json --output ./artifacts/draft-plan.json --json
 ```
 
 测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML 和 HTML。

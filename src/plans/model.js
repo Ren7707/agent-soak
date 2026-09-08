@@ -1,4 +1,6 @@
 import { validateContract } from '../contracts/validation.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 const PLAN_VERSION = 1;
 const MODES = new Set(['readonly', 'write']);
@@ -35,6 +37,20 @@ export function normalizeModelPlan(plan, options) {
     contracts: plan.contracts.map((contract) => ({ ...contract, status: 'draft', review_required: true, approved: false })),
     scenarios: plan.scenarios.map((scenario) => ({ ...scenario, mode: scenario.mode || 'readonly' })),
   };
+}
+
+export async function normalizeModelPlanFile({ inputPath, outputPath, evidencePath } = {}) {
+  if (!inputPath) throw new Error('model_plan_input_required');
+  const input = path.resolve(inputPath);
+  const plan = JSON.parse(await fs.readFile(input, 'utf8'));
+  const evidence = evidencePath ? JSON.parse(await fs.readFile(path.resolve(evidencePath), 'utf8')) : undefined;
+  const evidenceIds = Array.isArray(evidence?.evidence) ? evidence.evidence.map((item) => item?.id).filter(Boolean) : [];
+  const normalized = normalizeModelPlan(plan, { evidenceIds });
+  if (!outputPath) return { ok: true, command: 'plan', input: input, ...normalized };
+  const output = path.resolve(outputPath);
+  await fs.mkdir(path.dirname(output), { recursive: true });
+  await fs.writeFile(output, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  return { ok: true, command: 'plan', input, output, ...normalized };
 }
 
 function validateEvidenceRefs(refs, knownEvidence) {

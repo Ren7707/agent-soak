@@ -53,6 +53,28 @@ test('CLI contract writes a reviewable draft from analysis JSON', async () => {
   }
 });
 
+test('CLI plan normalizes a model plan and checks evidence references', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-plan-'));
+  try {
+    const inputPath = path.join(cwd, 'model-plan.json');
+    const evidencePath = path.join(cwd, 'analysis.json');
+    const outputPath = path.join(cwd, 'draft-plan.json');
+    await fs.writeFile(inputPath, JSON.stringify({ version: 1, approved: true, contracts: [{ id: 'device', field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['e-1'] }], scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device', evidence_refs: ['e-1'] }] }));
+    await fs.writeFile(evidencePath, JSON.stringify({ evidence: [{ id: 'e-1' }] }));
+    const result = await runCli(['plan', '--input', inputPath, '--evidence', evidencePath, '--output', outputPath, '--json'], { cwd: path.dirname(cwd) });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 0);
+    assert.equal(body.command, 'plan');
+    assert.equal(body.status, 'draft');
+    assert.equal(JSON.parse(await fs.readFile(outputPath, 'utf8')).approved, false);
+    const invalid = await runCli(['plan', '--input', inputPath, '--evidence', path.join(cwd, 'missing-evidence.json'), '--json'], { cwd: path.dirname(cwd) });
+    assert.equal(invalid.code, 2);
+    assert.match(JSON.parse(invalid.stdout).detail_code, /ENOENT/);
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI doctor reports missing environment prerequisites', async () => {
   const cwd = fileURLToPath(new URL('..', import.meta.url));
   const result = await runCli(['doctor', '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: '' } });
