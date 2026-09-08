@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "ruleset_version": "demo-1",
   "platform": {
     "id": "demo-platform",
     "name": "Public Demo Platform",

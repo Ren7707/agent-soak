@@ -7,6 +7,7 @@
   "required": ["schema_version", "adapter", "platform", "capabilities", "scenarios"],
   "properties": {
     "schema_version": { "const": 1 },
+    "ruleset_version": { "type": "string", "minLength": 1 },
     "adapter": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|[/\\])\\.\\.(?:[/\\]|$)).+$" },
     "platform": {
       "type": "object",
@@ -38,7 +39,10 @@
           "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
           "timeout_ms": { "type": "integer", "minimum": 1 },
           "retries": { "type": "integer", "minimum": 0, "maximum": 10 },
-          "cleanup": { "type": "string" }
+          "cleanup": { "type": "string" },
+          "suite": { "type": "string", "minLength": 1 },
+          "tags": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "priority": { "enum": ["low", "medium", "high", "critical"] }
         }
       }
     }

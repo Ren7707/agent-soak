@@ -47,6 +47,7 @@ node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapt
 - Manifest 自动校验和 YAML 支持
 - 通过 `init-adapter` 快速创建平台适配器模板
 - 从已审核模型计划生成不连接目标平台的 Adapter/Manifest 安全骨架
+- 支持规则版本、套件/标签筛选、场景优先级和历史运行差异比较
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
 
@@ -183,6 +184,7 @@ agent-soak residue --json
 agent-soak analyze --source <授权源码目录> --json
 agent-soak plan --input <模型计划> --evidence <源码证据> --output <草稿计划> --json
 agent-soak scaffold --input <已审核计划> --output <适配器目录> --id <平台ID> --json
+agent-soak compare --baseline <旧 run.json> --current <新 run.json> --json
 ```
 
 所有命令都支持 `--json`，便于 Agent 或 CI 读取结构化结果。
@@ -208,6 +210,12 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 Manifest、契约快照、中文说明和未实现的 Adapter 占位。它不会访问目标平台，
 不会执行测试，也不会伪造成功结果；生成内容会移除来源证据、私有路径、URL、
 邮箱和敏感字段。输出目录默认不能覆盖已有目录，且必须位于当前工作目录内。
+
+场景可在 Manifest 中设置 `suite`、`tags` 和 `priority`，运行时使用
+`--suite` 或 `--tag` 只执行匹配场景；不指定筛选条件时行为不变。顶层
+`ruleset_version` 会随运行结果保存，便于确认规则变化。`compare` 只读取两个
+本地 `run.json`，按场景和案例比较状态，报告新增、删除、回归和修复，不会重新
+执行测试或修改产物。
 
 ## 安全边界
 

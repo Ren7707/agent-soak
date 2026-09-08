@@ -1,5 +1,6 @@
 export interface PlatformManifest {
   schema_version: 1;
+  ruleset_version?: string;
   adapter: string;
   platform: {
     id: string;
@@ -23,6 +24,9 @@ export interface ScenarioDeclaration {
   timeout_ms?: number;
   retries?: number;
   cleanup?: string;
+  suite?: string;
+  tags?: string[];
+  priority?: 'low' | 'medium' | 'high' | 'critical';
 }
 
 export type SemanticSampleKind = 'valid' | 'boundary' | 'nearby_semantic' | 'wrong_type' | 'missing' | 'normalization' | 'duplicate' | 'relationship' | 'lifecycle';

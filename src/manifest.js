@@ -20,6 +20,7 @@ export function validateManifest(manifest) {
   if (!manifest || typeof manifest !== 'object') throw new Error('manifest_invalid');
   for (const key of REQUIRED) if (!(key in manifest)) throw new Error(`manifest_missing_field: ${key}`);
   if (manifest.schema_version !== 1) throw new Error(`manifest_schema_unsupported: ${manifest.schema_version}`);
+  if (manifest.ruleset_version !== undefined && (typeof manifest.ruleset_version !== 'string' || !manifest.ruleset_version)) throw new Error('manifest_invalid_ruleset_version');
   if (typeof manifest.adapter !== 'string' || !manifest.adapter || pathLikeUnsafe(manifest.adapter)) throw new Error('manifest_invalid_adapter');
   const platform = manifest.platform;
   if (!platform || typeof platform !== 'object') throw new Error('manifest_platform_required');
@@ -37,6 +38,9 @@ export function validateManifest(manifest) {
     if (scenario.capabilities !== undefined && !Array.isArray(scenario.capabilities)) throw new Error(`manifest_invalid_scenario_capabilities: ${scenario.id}`);
     if (scenario.timeout_ms !== undefined && (!Number.isInteger(scenario.timeout_ms) || scenario.timeout_ms < 1)) throw new Error(`manifest_invalid_timeout: ${scenario.id}`);
     if (scenario.retries !== undefined && (!Number.isInteger(scenario.retries) || scenario.retries < 0 || scenario.retries > 10)) throw new Error(`manifest_invalid_retries: ${scenario.id}`);
+    if (scenario.suite !== undefined && (typeof scenario.suite !== 'string' || !scenario.suite)) throw new Error(`manifest_invalid_suite: ${scenario.id}`);
+    if (scenario.tags !== undefined && (!Array.isArray(scenario.tags) || scenario.tags.some((tag) => typeof tag !== 'string' || !tag))) throw new Error(`manifest_invalid_tags: ${scenario.id}`);
+    if (scenario.priority !== undefined && !['low', 'medium', 'high', 'critical'].includes(scenario.priority)) throw new Error(`manifest_invalid_priority: ${scenario.id}`);
     for (const capability of scenario.capabilities || []) if (!manifest.capabilities.includes(capability)) throw new Error(`manifest_unknown_capability: ${scenario.id}:${capability}`);
     ids.add(scenario.id);
   }

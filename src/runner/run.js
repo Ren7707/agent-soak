@@ -29,6 +29,8 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   const skipped = [];
   const selected = manifest.scenarios.flatMap((scenario) => {
     const implementation = adapter.scenarios.find((item) => item.id === scenario.id);
+    if (args.suite && scenario.suite !== args.suite) { skipped.push({ id: scenario.id, reason: 'suite_filter' }); return []; }
+    if (args.tag && !(scenario.tags || []).includes(args.tag)) { skipped.push({ id: scenario.id, reason: 'tag_filter' }); return []; }
     if (scenario.mode === 'write' && mode === 'readonly') { skipped.push({ id: scenario.id, reason: 'write_mode_not_authorized' }); return []; }
     if ((scenario.capabilities || []).includes('browser') && args.browser !== true) { skipped.push({ id: scenario.id, reason: 'browser_not_requested' }); return []; }
     return [{ manifest: scenario, implementation, observe: adapter.observe }];
@@ -85,7 +87,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   const cancelled = schedule.cancelled || controller.signal.aborted;
   observer.record('run', { phase: 'finished', status: runtimeError ? 'runner_failed' : 'completed', cancelled, cleanupOk: cleanupResult.ok });
   const observations = await persistObservations(observer, artifactDir);
-  const result = { ok: scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, command: 'run', status: runtimeError ? 'runner_failed' : 'completed', runId, mode, rounds: schedule.completed, cancelled, scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
+  const result = { ok: scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, command: 'run', status: runtimeError ? 'runner_failed' : 'completed', runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
   await writeReports({ artifactDir, result });
   return result;
 }
@@ -116,7 +118,7 @@ async function runScenarioCase(entry, context, contract, testCase) {
       observer.recordAssertion({ name: `contract:${testCase.id}`, expected: testCase.expected || {}, actual: details, status: contractResult.status, mismatches: contractResult.mismatches });
       observer.record('scenario', { phase: 'finished', status: contractResult.status, ok: contractResult.ok });
       observationRefs.push(...observer.ids);
-      return { id: entry.implementation.id, caseId: testCase.id, kind: testCase.kind, round: context.round, status: contractResult.status, ok: contractResult.ok, attempts: attempt, durationMs: Date.now() - started, details, observation_refs: [...new Set(observationRefs)], ...(contract ? { contract: contractResult } : {}) };
+      return { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, kind: testCase.kind, round: context.round, status: contractResult.status, ok: contractResult.ok, attempts: attempt, durationMs: Date.now() - started, details, observation_refs: [...new Set(observationRefs)], ...(contract ? { contract: contractResult } : {}) };
     } catch (error) {
       lastError = error;
       observer.record('scenario', { phase: 'error', error: error instanceof Error ? error.message : String(error) });
@@ -126,7 +128,7 @@ async function runScenarioCase(entry, context, contract, testCase) {
       context.browser?.setObserver(previousBrowserObserver);
     }
   }
-  return { id: entry.implementation.id, caseId: testCase.id, kind: testCase.kind, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError), observation_refs: [...new Set(observationRefs)] };
+  return { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, kind: testCase.kind, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError), observation_refs: [...new Set(observationRefs)] };
 }
 
 async function runScenarioAttempt(entry, context) {

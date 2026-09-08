@@ -147,6 +147,32 @@ test('Demo platform regression detects semantic acceptance and cleans all resour
   }
 });
 
+test('CLI filters scenarios by suite and compares historical run results', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-compare-'));
+  try {
+    await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify({ schema_version: 1, ruleset_version: 'rules-1', adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['health'], scenarios: [{ id: 'smoke', mode: 'readonly', suite: 'smoke', tags: ['fast'], priority: 'high' }, { id: 'other', mode: 'readonly', suite: 'regression' }] }));
+    await fs.writeFile(path.join(cwd, 'adapter.js'), `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'smoke', async run() { return { ok: true }; } }, { id: 'other', async run() { return { ok: true }; } }], async deleteResource() {} }; }`);
+    const run = await runCli(['run', '--rounds', '1', '--suite', 'smoke', '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    const body = JSON.parse(run.stdout);
+    assert.equal(run.code, 0);
+    assert.equal(body.ruleset_version, 'rules-1');
+    assert.deepEqual(body.scenarios.map((item) => item.id), ['smoke']);
+    assert.deepEqual(body.scenarios[0].tags, ['fast']);
+    const baseline = path.join(cwd, 'baseline.json');
+    const current = path.join(cwd, 'current.json');
+    await fs.writeFile(baseline, JSON.stringify({ command: 'run', runId: 'old', ruleset_version: 'rules-1', scenarios: [{ id: 'smoke', caseId: 'baseline', status: 'passed', ok: true }] }));
+    await fs.writeFile(current, JSON.stringify({ command: 'run', runId: 'new', ruleset_version: 'rules-2', scenarios: [{ id: 'smoke', caseId: 'baseline', status: 'failed', ok: false, category: 'script' }, { id: 'added', caseId: 'baseline', status: 'passed', ok: true }] }));
+    const compared = await runCli(['compare', '--baseline', baseline, '--current', current, '--json'], { cwd });
+    const comparison = JSON.parse(compared.stdout);
+    assert.equal(compared.code, 0);
+    assert.equal(comparison.regressions, 1);
+    assert.equal(comparison.changed, 2);
+    assert.equal(comparison.current.ruleset_version, 'rules-2');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI doctor reports missing environment prerequisites', async () => {
   const cwd = fileURLToPath(new URL('..', import.meta.url));
   const result = await runCli(['doctor', '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: '' } });
