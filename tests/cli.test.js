@@ -54,6 +54,22 @@ test('CLI contract writes a reviewable draft from analysis JSON', async () => {
   }
 });
 
+test('CLI conflicts reports ambiguous source rules without selecting a winner', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-conflicts-'));
+  try {
+    const analysisPath = path.join(cwd, 'analysis.json');
+    const outputPath = path.join(cwd, 'conflicts.json');
+    await fs.writeFile(analysisPath, JSON.stringify({ command: 'analyze', evidence: [{ id: 'front', source: 'frontend' }, { id: 'back', source: 'backend_validator' }], candidates: [{ field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['front', 'back'], policy: { allowed_values: 'observed_or_explicit_custom' }, conflicts: [{ kind: 'observed_value_sets', value_sets: [{ values: ['Windows', 'Linux'], evidence_refs: ['front'] }, { values: ['Windows', 'Linux', 'AcmeOS'], evidence_refs: ['back'] }] }] }] }));
+    const result = await runCli(['conflicts', '--analysis', analysisPath, '--output', outputPath, '--json'], { cwd });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 0);
+    assert.equal(body.status, 'review_required');
+    assert.equal(JSON.parse(await fs.readFile(outputPath, 'utf8')).findings[0].category, 'semantic_boundary_ambiguous');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI plan normalizes a model plan and checks evidence references', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-plan-'));
   try {

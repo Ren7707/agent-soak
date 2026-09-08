@@ -9,7 +9,7 @@ import { ERROR_CODES, EXIT_CODES, exitCodeForResult, resultCode } from './core/e
 import { loadManifest, manifestPathFrom, resolveBaseUrl } from './manifest.js';
 import { ResourceRegistry } from './resources/registry.js';
 import { runSoak } from './runner/run.js';
-import { analyzeSource } from './knowledge/index.js';
+import { analyzeSource, inspectRuleConflictsFile } from './knowledge/index.js';
 import { synthesizeContracts } from './contracts/index.js';
 import { RuntimeObserver } from './evidence/index.js';
 import { normalizeModelPlanFile, scaffoldFromPlanFile } from './plans/index.js';
@@ -25,6 +25,7 @@ Commands:
   validate                Run configuration and service preflight checks
   doctor                  Check runtime, manifest, adapter, and local prerequisites
   analyze                 Scan authorized source and produce evidence-bound rule candidates
+  conflicts               Inspect rule-source and semantic-boundary conflicts
   contract                Convert analysis candidates into reviewable draft contracts
   plan                    Validate and normalize a model-generated test plan
   scaffold                Generate a safe Adapter/Manifest skeleton from an approved plan
@@ -63,6 +64,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (args.positionals.length) throw new Error(`argument_unknown: ${args.positionals[0]}`);
     if (args.command === 'compare') return print(await compareRunFiles({ baselinePath: args.baseline, currentPath: args.current }), wantsJson);
     if (args.command === 'analyze') return print(await analyzeSource({ root: path.resolve(String(args.source || process.cwd())), outputPath: args.output }), wantsJson);
+    if (args.command === 'conflicts') return print(await inspectRuleConflictsFile({ analysisPath: args.analysis, outputPath: args.output }), wantsJson);
     if (args.command === 'contract') return print(await synthesizeContracts({ analysisPath: args.analysis, outputPath: args.output }), wantsJson);
     if (args.command === 'plan') return print(await normalizeModelPlanFile({ inputPath: args.input, outputPath: args.output, evidencePath: args.evidence }), wantsJson);
     if (args.command === 'scaffold') return print(await scaffoldFromPlanFile({ cwd: process.cwd(), inputPath: args.input, outputDir: args.output, id: args.id, force: args.force === true }), wantsJson);

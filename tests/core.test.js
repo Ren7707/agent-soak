@@ -9,7 +9,7 @@ import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
 import { evaluateContract, evaluateInvariants, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
-import { analyzeSource } from '../src/knowledge/index.js';
+import { analyzeSource, inspectRuleConflicts } from '../src/knowledge/index.js';
 import { normalizeModelPlan, validateModelPlan } from '../src/plans/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
@@ -179,6 +179,15 @@ test('contract synthesis rejects evidence references that are not in the analysi
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('rule conflict inspection keeps ambiguous boundaries reviewable', () => {
+  const result = inspectRuleConflicts({ command: 'analyze', evidence: [{ id: 'e-1', source: 'frontend' }, { id: 'e-2', source: 'backend_validator' }], candidates: [{ field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['e-1', 'e-2'], policy: { allowed_values: 'observed_or_explicit_custom' }, conflicts: [{ kind: 'observed_value_sets', value_sets: [{ values: ['Windows', 'Linux'], evidence_refs: ['e-1'] }, { values: ['Windows', 'Linux', 'AcmeOS'], evidence_refs: ['e-2'] }] }] }] });
+  assert.equal(result.status, 'review_required');
+  assert.equal(result.findings[0].category, 'semantic_boundary_ambiguous');
+  assert.equal(result.findings[0].source_priority.find((item) => item.source === 'backend_validator').priority, 90);
+  assert.equal(result.findings[0].certainty, 'review_required');
+  assert.doesNotThrow(() => inspectRuleConflicts({ command: 'analyze', evidence: [], candidates: [] }));
 });
 
 test('model plans validate evidence and contract references', () => {

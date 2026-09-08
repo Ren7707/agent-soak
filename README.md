@@ -27,6 +27,7 @@ node src/cli.js residue --json
 node src/cli.js doctor --json
 node src/cli.js --version --json
 node src/cli.js analyze --source ./src --output ./artifacts/source-analysis.json --json
+node src/cli.js conflicts --analysis ./artifacts/source-analysis.json --output ./artifacts/conflicts.json --json
 node src/cli.js contract --analysis ./artifacts/source-analysis.json --output ./artifacts/contracts.json --json
 node src/cli.js plan --input ./artifacts/model-plan.json --evidence ./artifacts/source-analysis.json --output ./artifacts/draft-plan.json --json
 node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapters/personal-demo --id personal-demo --json
@@ -48,6 +49,7 @@ node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapt
 - 通过 `init-adapter` 快速创建平台适配器模板
 - 从已审核模型计划生成不连接目标平台的 Adapter/Manifest 安全骨架
 - 支持规则版本、套件/标签筛选、场景优先级和历史运行差异比较
+- 规则来源冲突和语义边界歧义审查
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
 
@@ -182,6 +184,7 @@ agent-soak run --duration 10m
 agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
 agent-soak analyze --source <授权源码目录> --json
+agent-soak conflicts --analysis <源码分析> --output <冲突报告> --json
 agent-soak plan --input <模型计划> --evidence <源码证据> --output <草稿计划> --json
 agent-soak scaffold --input <已审核计划> --output <适配器目录> --id <平台ID> --json
 agent-soak compare --baseline <旧 run.json> --current <新 run.json> --json
@@ -199,6 +202,11 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 生成契约使用。候选规则不是最终产品规则，不会直接改变测试结果。`contract`
 命令只接受带有效 `evidence_refs` 的分析结果，并生成需要人工审阅的草稿，
 不会把模型或扫描器的猜测直接升级为确定缺陷。
+
+`conflicts` 是只读的规则冲突审查命令。它会保留前端、后端校验器、接口契约、
+运行观测和模型推断之间的差异，输出 `semantic_boundary_ambiguous` 和
+`review_required`，不会静默选择某一方，也不会把冲突直接报告为确定缺陷。
+规则来源优先级只用于排序和人工审查提示，不能替代产品规则确认。
 
 模型生成的测试计划应符合根目录的 `test-plan.schema.json`，并可通过
 `src/plans` 的 `validateModelPlan` 校验证据和契约引用。框架提供

@@ -25,6 +25,7 @@ export async function synthesizeContracts({ analysisPath, outputPath } = {}) {
       evidence_refs: candidate.evidence_refs || [],
       confidence: candidate.confidence ?? 0,
       conflicts: candidate.conflicts || [],
+      conflict_review: candidate.conflicts?.length ? { status: 'review_required', category: 'semantic_boundary_ambiguous', conflict_count: candidate.conflicts.length } : { status: 'clear' },
       semantic_review: candidate.conflicts?.length ? 'conflict_review_required' : 'candidate_review_required',
       review_required: true,
       status: 'draft',
