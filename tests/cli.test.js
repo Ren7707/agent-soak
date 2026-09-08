@@ -123,6 +123,30 @@ test('CLI scaffold rejects drafts and output paths outside the workspace', async
   }
 });
 
+test('Demo platform regression detects semantic acceptance and cleans all resources', async () => {
+  const cwd = fileURLToPath(new URL('..', import.meta.url));
+  const artifacts = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-demo-e2e-'));
+  const port = 4320 + Math.floor(Math.random() * 100);
+  const server = spawn(process.execPath, ['examples/demo-platform/server.js'], { cwd, env: { ...process.env, DEMO_PORT: String(port) } });
+  try {
+    await waitForHealth(`http://127.0.0.1:${port}/health`);
+    const run = await runCli(['run', '--manifest', 'platform.manifest.json', '--mode', 'write', '--allow-writes', '--rounds', '1', '--artifacts', artifacts, '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: `http://127.0.0.1:${port}`, ALLOW_TEST_WRITES: 'true' } });
+    const body = JSON.parse(run.stdout);
+    assert.equal(run.code, 4);
+    assert.ok(body.scenarios.some((scenario) => scenario.status === 'confirmed_bug' && scenario.contract?.category === 'semantic_constraint_missing'));
+    assert.equal(body.cleanup.ok, true);
+    const residue = await runCli(['residue', '--manifest', 'platform.manifest.json', '--remote', '--artifacts', artifacts, '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: `http://127.0.0.1:${port}` } });
+    const residueBody = JSON.parse(residue.stdout);
+    assert.equal(residue.code, 0);
+    assert.deepEqual(residueBody.remote, []);
+    assert.deepEqual(residueBody.pending, []);
+  } finally {
+    server.kill('SIGTERM');
+    await once(server, 'close').catch(() => {});
+    await fs.rm(artifacts, { recursive: true, force: true });
+  }
+});
+
 test('CLI doctor reports missing environment prerequisites', async () => {
   const cwd = fileURLToPath(new URL('..', import.meta.url));
   const result = await runCli(['doctor', '--json'], { cwd, env: { DEMO_PLATFORM_BASE_URL: '' } });
@@ -231,4 +255,15 @@ function runCli(args, { cwd, env = process.env }) {
     child.once('error', reject);
     child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
   });
+}
+
+async function waitForHealth(url) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`demo_health_timeout: ${url}`);
 }
