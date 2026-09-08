@@ -52,6 +52,7 @@ node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapt
 - 支持规则版本、套件/标签筛选、场景优先级和历史运行差异比较
 - 规则来源冲突和语义边界歧义审查
 - 多行枚举、表单文案、校验器和接口 Schema 的来源证据识别
+- 结构化 OpenAPI / Swagger / JSON Schema 的字段级证据提取（枚举、描述、必填和 Schema 路径）
 - 带审核人、理由和时间记录的测试计划审批流程
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
@@ -213,8 +214,10 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 规则来源优先级只用于排序和人工审查提示，不能替代产品规则确认。
 
 源码分析会读取有限的相邻源码行来识别跨行枚举，并根据路径和上下文标记
-`frontend`、`backend_validator`、`openapi`、`runtime` 或普通 `source`。这些标记
-只是证据来源分类，不代表框架已经选定产品规则；不同来源的值集合仍会进入
+`frontend`、`backend_validator`、`openapi`、`runtime` 或普通 `source`。对于结构化
+OpenAPI / Swagger / JSON Schema 文件，分析器只提取字段级最小证据：字段、语义类型、
+枚举、描述摘要、是否必填、Schema 路径和行号，不输出完整 Schema、请求示例或敏感内容。
+这些标记只是证据来源分类，不代表框架已经选定产品规则；不同来源的值集合仍会进入
 `conflicts` 审查。
 
 `approve` 只接受由框架生成的草稿计划，并要求明确提供审核人和理由。存在未解决

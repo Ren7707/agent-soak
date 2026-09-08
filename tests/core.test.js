@@ -150,6 +150,38 @@ test('source analysis captures multiline values and provenance categories', asyn
   }
 });
 
+test('source analysis extracts minimal OpenAPI schema evidence', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-openapi-json-'));
+  try {
+    await fs.writeFile(path.join(dir, 'openapi.json'), JSON.stringify({ openapi: '3.0.3', components: { schemas: { Device: { type: 'object', required: ['platform'], properties: { platform: { type: 'string', enum: ['Windows', 'Linux'], description: 'device platform' }, email: { type: 'string' } } } } } }, null, 2));
+    const result = await analyzeSource({ root: dir });
+    const platform = result.evidence.find((item) => item.kind === 'schema_field' && item.field === 'platform');
+    assert.equal(platform.source, 'openapi');
+    assert.deepEqual(platform.values, ['Windows', 'Linux']);
+    assert.equal(platform.required, true);
+    assert.equal(platform.description, 'device platform');
+    assert.match(platform.schema_path, /components.schemas.Device.properties.platform/);
+    assert.ok(platform.line > 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('source analysis extracts YAML JSON Schema evidence and merges it into candidates', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-schema-yaml-'));
+  try {
+    await fs.writeFile(path.join(dir, 'device.schema.yaml'), `$schema: https://json-schema.org/draft/2020-12/schema\ntitle: Device\ntype: object\nrequired:\n  - platform\nproperties:\n  platform:\n    type: string\n    enum:\n      - Windows\n      - macOS\n    description: Operating system platform\n`);
+    const result = await analyzeSource({ root: dir });
+    const platform = result.evidence.find((item) => item.kind === 'schema_field' && item.field === 'platform');
+    assert.equal(platform.source, 'openapi');
+    assert.deepEqual(platform.values, ['Windows', 'macOS']);
+    assert.equal(platform.required, true);
+    assert.equal(result.candidates.find((item) => item.field === 'platform').examples.includes('macOS'), true);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('contract synthesis creates reviewable draft contracts from analysis', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-contract-synthesis-'));
   try {

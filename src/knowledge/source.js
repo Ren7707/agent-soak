@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { redact } from '../core/redact.js';
+import { parse as parseYaml } from 'yaml';
 
 const EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.json', '.yaml', '.yml']);
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', 'artifacts']);
@@ -48,6 +49,7 @@ function extractEvidence(root, file, content, fileIndex) {
   const lines = content.split(/\r?\n/);
   const source = classifySource(relative, content);
   const result = [];
+  if (source === 'openapi') result.push(...extractStructuredEvidence(relative, content, lines, fileIndex));
   lines.forEach((line, index) => {
     let occurrence = 0;
     for (const match of line.matchAll(/\b(platform|os|email|username|status|version|amount|quantity|timezone)(?:Options|Values|Types|Names|Schema|Validator)?\b/gi)) {
@@ -58,6 +60,79 @@ function extractEvidence(root, file, content, fileIndex) {
     }
   });
   return result;
+}
+
+function extractStructuredEvidence(relative, content, lines, fileIndex) {
+  const document = parseStructuredDocument(relative, content);
+  if (!document || typeof document !== 'object') return [];
+  const result = [];
+  const lineCursor = { value: 0 };
+  const kind = document.openapi || document.swagger ? 'openapi' : 'json_schema';
+  walkStructuredSchema(document, [], result, relative, lines, fileIndex, lineCursor, kind);
+  return result;
+}
+
+function parseStructuredDocument(relative, content) {
+  try {
+    return path.extname(relative).toLowerCase() === '.json' ? JSON.parse(content) : parseYaml(content);
+  } catch {
+    return null;
+  }
+}
+
+function walkStructuredSchema(node, schemaPath, result, relative, lines, fileIndex, lineCursor, kind) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    node.forEach((item, index) => walkStructuredSchema(item, [...schemaPath, index], result, relative, lines, fileIndex, lineCursor, kind));
+    return;
+  }
+
+  const properties = node.properties && typeof node.properties === 'object' ? node.properties : null;
+  if (properties) {
+    for (const [field, fieldSchema] of Object.entries(properties)) {
+      const semanticType = semanticTypeForField(field);
+      if (semanticType) {
+        const fieldPath = [...schemaPath, 'properties', field];
+        const line = findStructuredFieldLine(lines, field, lineCursor);
+        const values = Array.isArray(fieldSchema?.enum) ? fieldSchema.enum.filter((value) => typeof value === 'string').slice(0, 50) : [];
+        const description = typeof fieldSchema?.description === 'string' ? fieldSchema.description.slice(0, 240) : undefined;
+        result.push({
+          id: `evidence-${fileIndex + 1}-${line}-${result.length + 1}`,
+          source: 'openapi',
+          kind: 'schema_field',
+          schema_kind: kind,
+          file: relative,
+          line,
+          field: field.toLowerCase(),
+          semantic_type: semanticType,
+          schema_path: `$.${fieldPath.map(String).join('.')}`,
+          values,
+          required: Array.isArray(node.required) && node.required.includes(field),
+          ...(description ? { description } : {}),
+          snippet: lines[Math.max(0, line - 1)]?.trim().slice(0, 240) || '',
+          confidence: values.length || description ? 0.98 : 0.9,
+        });
+      }
+      walkStructuredSchema(fieldSchema, [...schemaPath, 'properties', field], result, relative, lines, fileIndex, lineCursor, kind);
+    }
+  }
+
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'properties') continue;
+    walkStructuredSchema(value, [...schemaPath, key], result, relative, lines, fileIndex, lineCursor, kind);
+  }
+}
+
+function findStructuredFieldLine(lines, field, lineCursor) {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?:["']${escaped}["']|^\\s*${escaped})\\s*:`);
+  for (let index = lineCursor.value; index < lines.length; index += 1) {
+    if (pattern.test(lines[index])) {
+      lineCursor.value = index + 1;
+      return index + 1;
+    }
+  }
+  return 1;
 }
 
 function valuesNear(lines, lineIndex, offset) {
@@ -72,11 +147,19 @@ function snippetNear(lines, lineIndex) { return lines.slice(lineIndex, Math.min(
 
 function classifySource(relative, content) {
   const value = `${relative}\n${content}`.toLowerCase();
-  if (/openapi|swagger|schema\.json|components:\s*schemas/.test(value)) return 'openapi';
+  if (/openapi|swagger|schema\.(?:json|ya?ml)|components:\s*schemas/.test(value)) return 'openapi';
   if (/validator|validation|zod|joi|yup|class-validator|dto/.test(value)) return 'backend_validator';
   if (/react|vue|svelte|tsx|jsx|<select|option|label|form/.test(value)) return 'frontend';
   if (/fetch\(|axios|request\(|response\.|statuscode/.test(value)) return 'runtime';
   return 'source';
+}
+
+function semanticTypeForField(field) {
+  const normalized = String(field).replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+  const direct = SEMANTIC_ALIASES[normalized];
+  if (direct) return direct;
+  const alias = Object.keys(SEMANTIC_ALIASES).find((key) => normalized === `${key}_type` || normalized === `${key}_name` || normalized === `${key}_value`);
+  return alias ? SEMANTIC_ALIASES[alias] : undefined;
 }
 
 function mergeCandidates(evidence) {
