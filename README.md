@@ -29,6 +29,7 @@ node src/cli.js --version --json
 node src/cli.js analyze --source ./src --output ./artifacts/source-analysis.json --json
 node src/cli.js contract --analysis ./artifacts/source-analysis.json --output ./artifacts/contracts.json --json
 node src/cli.js plan --input ./artifacts/model-plan.json --evidence ./artifacts/source-analysis.json --output ./artifacts/draft-plan.json --json
+node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapters/personal-demo --id personal-demo --json
 ```
 
 测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML 和 HTML。
@@ -45,6 +46,7 @@ node src/cli.js plan --input ./artifacts/model-plan.json --evidence ./artifacts/
 - JSON、Markdown、JUnit XML、HTML 报告
 - Manifest 自动校验和 YAML 支持
 - 通过 `init-adapter` 快速创建平台适配器模板
+- 从已审核模型计划生成不连接目标平台的 Adapter/Manifest 安全骨架
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
 
@@ -179,6 +181,8 @@ agent-soak run --duration 10m
 agent-soak cleanup --run-id <run-id> --dry-run
 agent-soak residue --json
 agent-soak analyze --source <授权源码目录> --json
+agent-soak plan --input <模型计划> --evidence <源码证据> --output <草稿计划> --json
+agent-soak scaffold --input <已审核计划> --output <适配器目录> --id <平台ID> --json
 ```
 
 所有命令都支持 `--json`，便于 Agent 或 CI 读取结构化结果。
@@ -198,6 +202,12 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 `src/plans` 的 `validateModelPlan` 校验证据和契约引用。框架提供
 `normalizeModelPlan` 将模型输出固定降级为 `draft`、`review_required: true`、
 `approved: false`；模型不能直接确认缺陷、授权写入或跳过现有安全门。
+
+`scaffold` 只接受人工审核后的计划（计划和每个契约都必须是
+`status: approved`、`review_required: false`、`approved: true`），生成通用
+Manifest、契约快照、中文说明和未实现的 Adapter 占位。它不会访问目标平台，
+不会执行测试，也不会伪造成功结果；生成内容会移除来源证据、私有路径、URL、
+邮箱和敏感字段。输出目录默认不能覆盖已有目录，且必须位于当前工作目录内。
 
 ## 安全边界
 

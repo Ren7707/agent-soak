@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadManifest } from '../src/manifest.js';
 
 const root = new URL('..', import.meta.url);
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
@@ -70,6 +71,53 @@ test('CLI plan normalizes a model plan and checks evidence references', async ()
     const invalid = await runCli(['plan', '--input', inputPath, '--evidence', path.join(cwd, 'missing-evidence.json'), '--json'], { cwd: path.dirname(cwd) });
     assert.equal(invalid.code, 2);
     assert.match(JSON.parse(invalid.stdout).detail_code, /ENOENT/);
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('CLI scaffold generates a safe skeleton only from an approved plan', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-scaffold-'));
+  try {
+    const inputPath = path.join(cwd, 'approved-plan.json');
+    const outputDir = path.join(cwd, 'adapters', 'personal-demo');
+    const plan = {
+      version: 1, status: 'approved', review_required: false, approved: true,
+      contracts: [{ id: 'device', field: 'platform', semantic_type: 'operating_system_platform', description: '企业系统 https://private.example.test', evidence_refs: ['e-1'], policy: { api_key: 'secret-token' }, cases: [{ input: { email: 'owner@example.com' } }] , status: 'approved', review_required: false, approved: true }],
+      scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device' }],
+    };
+    await fs.writeFile(inputPath, JSON.stringify(plan));
+    const result = await runCli(['scaffold', '--input', inputPath, '--output', outputDir, '--id', 'personal-demo', '--json'], { cwd });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 0);
+    assert.equal(body.executes, false);
+    assert.deepEqual((await fs.readdir(outputDir)).sort(), ['README.md', 'adapter.js', 'contracts.json', 'platform.manifest.json']);
+    const manifest = JSON.parse(await fs.readFile(path.join(outputDir, 'platform.manifest.json'), 'utf8'));
+    assert.equal(manifest.scenarios[0].mode, 'write');
+    assert.equal(manifest.platform.production, false);
+    assert.equal((await loadManifest(path.join(outputDir, 'platform.manifest.json'))).platform.id, 'personal-demo');
+    const generated = await Promise.all(['README.md', 'adapter.js', 'contracts.json'].map((name) => fs.readFile(path.join(outputDir, name), 'utf8')));
+    assert.ok(generated.every((text) => !text.includes('private.example.test') && !text.includes('owner@example.com') && !text.includes('secret-token')));
+    const duplicate = await runCli(['scaffold', '--input', inputPath, '--output', outputDir, '--id', 'personal-demo', '--json'], { cwd });
+    assert.equal(duplicate.code, 2);
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('CLI scaffold rejects drafts and output paths outside the workspace', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-scaffold-'));
+  try {
+    const inputPath = path.join(cwd, 'draft.json');
+    await fs.writeFile(inputPath, JSON.stringify({ version: 1, status: 'draft', review_required: true, approved: false, contracts: [], scenarios: [{ id: 'check' }] }));
+    const draft = await runCli(['scaffold', '--input', inputPath, '--id', 'demo', '--json'], { cwd });
+    assert.equal(draft.code, 2);
+    assert.match(JSON.parse(draft.stdout).detail_code, /scaffold_plan_not_approved/);
+    const approvedPath = path.join(cwd, 'approved.json');
+    await fs.writeFile(approvedPath, JSON.stringify({ version: 1, status: 'approved', review_required: false, approved: true, contracts: [], scenarios: [{ id: 'check' }] }));
+    const outside = await runCli(['scaffold', '--input', approvedPath, '--output', path.join(cwd, '..', 'outside'), '--id', 'demo', '--json'], { cwd });
+    assert.equal(outside.code, 2);
+    assert.match(JSON.parse(outside.stdout).detail_code, /scaffold_output_invalid/);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
