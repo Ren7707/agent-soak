@@ -115,6 +115,23 @@ export interface SourceAnalysisResult {
   output?: string;
 }
 
+export interface ModelPlanScenario {
+  id: string;
+  mode?: 'readonly' | 'write';
+  contract_id?: string;
+  evidence_refs?: string[];
+}
+
+export interface ModelTestPlan {
+  version: 1;
+  status?: string;
+  review_required?: boolean;
+  approved?: boolean;
+  requires_write_approval?: boolean;
+  contracts: ScenarioContract[];
+  scenarios: ModelPlanScenario[];
+}
+
 export interface RuntimeObserver {
   record(type: string, data?: Record<string, unknown>): string;
   recordRequest(data: Record<string, unknown>): string;

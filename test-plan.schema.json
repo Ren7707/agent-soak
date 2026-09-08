@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ren7707.github.io/agent-soak/test-plan.schema.json",
+  "title": "agent-soak model-generated test plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "contracts", "scenarios"],
+  "properties": {
+    "version": { "const": 1 },
+    "status": { "type": "string" },
+    "review_required": { "type": "boolean" },
+    "approved": { "type": "boolean" },
+    "requires_write_approval": { "type": "boolean" },
+    "contracts": { "type": "array", "items": { "$ref": "contract.schema.json" } },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "mode": { "enum": ["readonly", "write"] },
+          "contract_id": { "type": "string", "minLength": 1 },
+          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+        }
+      }
+    }
+  }
+}

@@ -193,6 +193,11 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 命令只接受带有效 `evidence_refs` 的分析结果，并生成需要人工审阅的草稿，
 不会把模型或扫描器的猜测直接升级为确定缺陷。
 
+模型生成的测试计划应符合根目录的 `test-plan.schema.json`，并可通过
+`src/plans` 的 `validateModelPlan` 校验证据和契约引用。框架提供
+`normalizeModelPlan` 将模型输出固定降级为 `draft`、`review_required: true`、
+`approved: false`；模型不能直接确认缺陷、授权写入或跳过现有安全门。
+
 ## 安全边界
 
 - 只读是默认模式

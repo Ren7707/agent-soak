@@ -10,6 +10,7 @@ import { parseDuration, runSchedule } from '../src/core/scheduler.js';
 import { redact } from '../src/core/redact.js';
 import { evaluateContract, evaluateInvariants, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
 import { analyzeSource } from '../src/knowledge/index.js';
+import { normalizeModelPlan, validateModelPlan } from '../src/plans/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
 
@@ -178,6 +179,17 @@ test('contract synthesis rejects evidence references that are not in the analysi
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('model plans validate evidence and contract references', () => {
+  const plan = { version: 1, contracts: [{ id: 'device-contract', field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['e-1'] }], scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device-contract', evidence_refs: ['e-1'] }] };
+  assert.doesNotThrow(() => validateModelPlan(plan, { evidenceIds: ['e-1'] }));
+  const normalized = normalizeModelPlan({ ...plan, approved: true }, { evidenceIds: ['e-1'] });
+  assert.equal(normalized.status, 'draft');
+  assert.equal(normalized.approved, false);
+  assert.equal(normalized.contracts[0].review_required, true);
+  assert.throws(() => validateModelPlan(plan, { evidenceIds: ['other'] }), /model_plan_evidence_reference_missing/);
+  assert.throws(() => validateModelPlan({ ...plan, scenarios: [{ id: 'broken', contract_id: 'missing' }] }, { evidenceIds: ['e-1'] }), /model_plan_contract_missing/);
 });
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));
