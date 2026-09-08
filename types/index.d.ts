@@ -46,6 +46,7 @@ export interface SemanticPolicy {
   generate_risk_cases?: boolean;
   reject_unclassified_value?: boolean;
   unique?: boolean;
+  idempotent?: boolean;
   risk_expected?: { accepted?: boolean; resourceCreated?: boolean };
   [key: string]: unknown;
 }
@@ -73,6 +74,19 @@ export interface BusinessInvariant {
   evidence_refs?: string[];
 }
 
+export interface LifecycleTransition {
+  from: string;
+  to: string;
+  expected?: Record<string, unknown>;
+  description?: string;
+}
+
+export interface LifecycleMachine {
+  states: string[];
+  transitions: LifecycleTransition[];
+  invalid_transitions?: LifecycleTransition[];
+}
+
 export interface ScenarioContract {
   field?: string;
   semantic_type?: string;
@@ -83,6 +97,7 @@ export interface ScenarioContract {
   expected?: Record<string, unknown>;
   description?: string;
   invariants?: BusinessInvariant[];
+  lifecycle?: LifecycleMachine;
   status?: string;
   review_required?: boolean;
   approved?: boolean;

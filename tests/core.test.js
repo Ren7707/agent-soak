@@ -26,6 +26,14 @@ test('semantic contract generates an executable duplicate sequence for unique fi
   assert.equal(duplicate.expected.accepted, false);
 });
 
+test('semantic contract generates idempotent duplicate and invalid lifecycle cases', () => {
+  const idempotent = generateContractCases({ fields: [{ path: 'requestId', examples: ['req-1'], policy: { idempotent: true } }] }).find((item) => item.kind === 'duplicate');
+  assert.equal(idempotent.expected.idempotent, true);
+  const lifecycle = generateContractCases({ lifecycle: { states: ['draft', 'published', 'deleted'], transitions: [{ from: 'draft', to: 'published' }, { from: 'published', to: 'deleted' }], invalid_transitions: [{ from: 'deleted', to: 'published' }] } }).find((item) => item.kind === 'lifecycle');
+  assert.deepEqual(lifecycle.sequence, ['deleted', 'published']);
+  assert.equal(lifecycle.expected.state, 'deleted');
+});
+
 test('risk library generates cross-domain values only when policy enables it', () => {
   assert.equal(generateRiskCases({ path: 'platform', semantic_type: 'operating_system_platform' }).length, 0);
   const cases = generateRiskCases({ path: 'platform', semantic_type: 'operating_system_platform', policy: { reject_unclassified_value: true } });
@@ -101,6 +109,7 @@ test('semantic contract rejects malformed declarations', () => {
   assert.throws(() => validateContract({ invariants: [{ id: 'broken' }] }), /contract_invariant_invalid/);
   assert.throws(() => validateContract({ cases: [{ kind: 'duplicate', sequence: ['submit'] }] }), /contract_case_sequence_invalid/);
   assert.throws(() => validateContract({ invariants: [{ id: 'bad', description: '错误', type: 'unknown' }] }), /contract_invariant_type_invalid/);
+  assert.throws(() => validateContract({ lifecycle: { states: ['draft'], transitions: [{ from: 'draft', to: 'missing' }] } }), /contract_lifecycle_state_unknown/);
 });
 
 test('source analysis returns evidence-bound semantic candidates', async () => {

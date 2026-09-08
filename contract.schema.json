@@ -14,6 +14,7 @@
     "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
     "cases": { "type": "array", "items": { "$ref": "#/$defs/case" } },
     "invariants": { "type": "array", "items": { "$ref": "#/$defs/invariant" } },
+    "lifecycle": { "$ref": "#/$defs/lifecycle" },
     "expected": { "type": "object" },
     "status": { "type": "string" },
     "review_required": { "type": "boolean" },
@@ -32,6 +33,7 @@
         "generate_risk_cases": { "type": "boolean" },
         "reject_unclassified_value": { "type": "boolean" },
         "unique": { "type": "boolean" },
+        "idempotent": { "type": "boolean" },
         "risk_expected": { "type": "object", "additionalProperties": false, "properties": { "accepted": { "type": "boolean" }, "resourceCreated": { "type": "boolean" } } }
       }
     },
@@ -76,6 +78,27 @@
         "transitions": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["from", "to"], "properties": { "from": { "type": "string" }, "to": { "type": "string" } } } },
         "severity": { "enum": ["low", "medium", "high"] },
         "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    }
+    ,"lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["states", "transitions"],
+      "properties": {
+        "states": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "transitions": { "type": "array", "items": { "$ref": "#/$defs/transition" } },
+        "invalid_transitions": { "type": "array", "items": { "$ref": "#/$defs/transition" } }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "expected": { "type": "object" },
+        "description": { "type": "string" }
       }
     }
   }

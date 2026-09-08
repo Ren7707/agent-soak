@@ -141,6 +141,11 @@ JavaScript，也可以通过编辑器类型提示获得 Manifest、场景和资�
 当案例包含至少两个 `sequence` 步骤时，Runner 会优先调用 Adapter 的
 `runSequence`；没有该钩子时仍回退到普通 `run`，保证旧 Adapter 兼容。
 
+字段策略 `idempotent: true` 会生成“相同请求重复提交”的幂等案例，预期是
+重复请求可接受但不得创建重复资源；`unique: true` 则预期重复请求被拒绝。
+契约的 `lifecycle` 可以声明状态集合、合法转换和禁止转换，框架会自动生成
+禁止转换案例交给 `runSequence` 执行。
+
 契约场景应返回可观察结果，例如 `accepted`、`resourceCreated`、`resource`
 或领域自定义状态字段。框架不会把 HTTP 2xx 自动当作业务成功；Adapter
 需要把接口、页面和资源状态转换成这些可断言的观察值。

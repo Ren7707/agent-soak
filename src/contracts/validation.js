@@ -17,6 +17,7 @@ export function validateContract(contract) {
   if (contract.fields !== undefined && !Array.isArray(contract.fields)) throw new Error('contract_fields_must_be_array');
   if (contract.cases !== undefined && !Array.isArray(contract.cases)) throw new Error('contract_cases_must_be_array');
   if (contract.invariants !== undefined && !Array.isArray(contract.invariants)) throw new Error('contract_invariants_must_be_array');
+  if (contract.lifecycle !== undefined) validateLifecycle(contract.lifecycle);
   for (const item of contract.cases || []) validateCase(item);
   for (const item of contract.invariants || []) validateInvariant(item);
   for (const field of contract.fields || []) {
@@ -31,7 +32,7 @@ export function validateContract(contract) {
 function validatePolicy(policy, prefix) {
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new Error(`${prefix}_invalid`);
   if (policy.allowed_values !== undefined && !ALLOWED_VALUE_POLICIES.has(policy.allowed_values)) throw new Error(`${prefix}_allowed_values_invalid`);
-  for (const key of ['normalize_case', 'trim_whitespace', 'generate_risk_cases', 'reject_unclassified_value', 'unique']) {
+  for (const key of ['normalize_case', 'trim_whitespace', 'generate_risk_cases', 'reject_unclassified_value', 'unique', 'idempotent']) {
     if (policy[key] !== undefined && typeof policy[key] !== 'boolean') throw new Error(`${prefix}_${key}_invalid`);
   }
   if (policy.risk_expected !== undefined) {
@@ -58,4 +59,16 @@ function validateInvariant(item) {
   if (item.type === 'state_transition' && (!Array.isArray(item.transitions) || item.transitions.some((transition) => !transition || typeof transition.from !== 'string' || typeof transition.to !== 'string'))) throw new Error('contract_invariant_transitions_invalid');
   if (item.severity !== undefined && !['low', 'medium', 'high'].includes(item.severity)) throw new Error('contract_invariant_severity_invalid');
   if (item.evidence_refs !== undefined && (!Array.isArray(item.evidence_refs) || item.evidence_refs.some((ref) => typeof ref !== 'string' || !ref))) throw new Error('contract_invariant_evidence_refs_invalid');
+}
+
+function validateLifecycle(machine) {
+  if (!machine || typeof machine !== 'object' || Array.isArray(machine)) throw new Error('contract_lifecycle_invalid');
+  if (!Array.isArray(machine.states) || machine.states.some((state) => typeof state !== 'string' || !state)) throw new Error('contract_lifecycle_states_invalid');
+  if (!Array.isArray(machine.transitions) || machine.transitions.some((item) => !item || typeof item.from !== 'string' || typeof item.to !== 'string')) throw new Error('contract_lifecycle_transitions_invalid');
+  if (machine.invalid_transitions !== undefined && (!Array.isArray(machine.invalid_transitions) || machine.invalid_transitions.some((item) => !item || typeof item.from !== 'string' || typeof item.to !== 'string'))) throw new Error('contract_lifecycle_invalid_transitions_invalid');
+  const states = new Set(machine.states);
+  for (const item of [...machine.transitions, ...(machine.invalid_transitions || [])]) {
+    if (!states.has(item.from) || !states.has(item.to)) throw new Error('contract_lifecycle_state_unknown');
+    if (item.expected !== undefined && (typeof item.expected !== 'object' || Array.isArray(item.expected))) throw new Error('contract_lifecycle_expected_invalid');
+  }
 }

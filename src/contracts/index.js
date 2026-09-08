@@ -4,7 +4,7 @@ import { generateRiskCases } from './risk-library.js';
 export function generateContractCases(contract = {}) {
   const fields = Array.isArray(contract.fields) ? contract.fields : [];
   const explicit = Array.isArray(contract.cases) ? contract.cases : [];
-  const generated = fields.flatMap((field) => generateFieldCases(field));
+  const generated = [...fields.flatMap((field) => generateFieldCases(field)), ...generateLifecycleCases(contract)];
   const cases = dedupeCases([...explicit, ...generated]);
   if (cases.length === 0) return [{ id: 'baseline', kind: 'valid', input: {}, expected: {} }];
   return cases.map((item, index) => normalizeCase(item, index));
@@ -60,11 +60,35 @@ function generateFieldCases(field) {
   const cases = values.map((value, index) => ({ id: `${field.path}-valid-${index + 1}`, kind: 'valid', input: { [field.path]: value }, expected: field.valid_expected || { accepted: true, resourceCreated: true } }));
   for (const value of field.negative_examples || []) cases.push({ id: `${field.path}-nearby-${cases.length + 1}`, kind: 'nearby_semantic', input: { [field.path]: value }, expected: field.negative_expected || { accepted: false, resourceCreated: false } });
   cases.push(...generateRiskCases(field));
-  if (policy.unique && values.length > 0) cases.push({ id: `${field.path}-duplicate`, kind: 'duplicate', input: { [field.path]: values[0] }, sequence: ['submit', 'submit'], expected: field.duplicate_expected || { accepted: false, resourceCreated: false }, description: '重复提交同一业务标识不得产生重复资源' });
+  if ((policy.unique || policy.idempotent) && values.length > 0) {
+    const expected = field.duplicate_expected || (policy.idempotent
+      ? { accepted: true, resourceCreated: false, idempotent: true }
+      : { accepted: false, resourceCreated: false });
+    cases.push({ id: `${field.path}-duplicate`, kind: 'duplicate', input: { [field.path]: values[0] }, sequence: ['submit', 'submit'], expected, description: policy.idempotent ? '重复提交应返回等价结果且不得创建重复资源' : '重复提交同一业务标识不得产生重复资源' });
+  }
   if (policy.normalize_case && typeof values[0] === 'string') cases.push({ id: `${field.path}-normalization-case`, kind: 'normalization', input: { [field.path]: values[0].toUpperCase() }, expected: field.normalization_expected || { accepted: true, resourceCreated: true } });
   if (policy.trim_whitespace && typeof values[0] === 'string') cases.push({ id: `${field.path}-normalization-space`, kind: 'normalization', input: { [field.path]: ` ${values[0]} ` }, expected: field.normalization_expected || { accepted: true, resourceCreated: true } });
   if (field.required !== false) cases.push({ id: `${field.path}-missing`, kind: 'missing', input: {}, expected: field.missing_expected || { accepted: false, resourceCreated: false } });
   return cases;
+}
+
+function generateLifecycleCases(contract) {
+  const machine = contract.lifecycle;
+  if (!machine || !Array.isArray(machine.states) || !Array.isArray(machine.transitions)) return [];
+  const valid = machine.transitions.filter((item) => item && typeof item.from === 'string' && typeof item.to === 'string');
+  const allowed = new Set(valid.map((item) => `${item.from}->${item.to}`));
+  const states = machine.states.filter((state) => typeof state === 'string');
+  const invalid = (machine.invalid_transitions || []).filter((item) => item && typeof item.from === 'string' && typeof item.to === 'string');
+  return invalid
+    .filter((item) => states.includes(item.from) && states.includes(item.to) && !allowed.has(`${item.from}->${item.to}`))
+    .map((item, index) => ({
+      id: `lifecycle-invalid-${index + 1}`,
+      kind: 'lifecycle',
+      input: {},
+      sequence: [item.from, item.to],
+      expected: item.expected || { accepted: false, state: item.from },
+      description: item.description || `禁止状态转换: ${item.from} -> ${item.to}`,
+    }));
 }
 
 function normalizeCase(item, index) {
