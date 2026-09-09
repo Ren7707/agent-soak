@@ -252,6 +252,8 @@ test('CLI filters scenarios by suite and compares historical run results', async
     assert.equal(comparison.regressions, 1);
     assert.equal(comparison.changed, 2);
     assert.equal(comparison.current.ruleset_version, 'rules-2');
+    assert.equal(body.result_schema_version, 1);
+    assert.equal(body.environment.base_url_configured, true);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
@@ -300,7 +302,31 @@ test('CLI fails clearly when readonly mode selects no scenarios', async () => {
     await fs.writeFile(path.join(cwd, 'adapter.js'), `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'write-only', async run() { return { ok: true }; } }], async deleteResource() {} }; }`);
     const result = await runCli(['run', '--rounds', '1', '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
     assert.equal(result.code, 4);
-    assert.equal(JSON.parse(result.stdout).status, 'no_scenarios_selected');
+    const body = JSON.parse(result.stdout);
+    assert.equal(body.status, 'no_scenarios_selected');
+    assert.equal(body.result_schema_version, 1);
+    assert.equal(body.rounds, 0);
+    assert.equal(body.environment.platform_id, 'test');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('CLI uses the same result contract when preflight fails', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-preflight-result-'));
+  try {
+    await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify({ schema_version: 1, adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly' }] }));
+    await fs.writeFile(path.join(cwd, 'adapter.js'), `export function createAdapter() { return { async preflight() { return { ok: false, issues: [{ category: 'configuration', error: 'health unavailable' }] }; }, async discover() { return {}; }, scenarios: [{ id: 'health', async run() { return { ok: true }; } }], async deleteResource() {} }; }`);
+    const result = await runCli(['run', '--rounds', '1', '--artifacts', path.join(cwd, 'artifacts'), '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 3);
+    assert.equal(body.status, 'preflight_failed');
+    assert.equal(body.result_schema_version, 1);
+    assert.equal(body.rounds, 0);
+    assert.equal(body.cancelled, false);
+    assert.equal(body.environment.platform_id, 'test');
+    assert.equal(body.environment.base_url_configured, true);
+    assert.ok(body.observations.file);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }

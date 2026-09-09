@@ -159,6 +159,51 @@ export interface ReplayPackage {
   observation_refs: string[];
 }
 
+export interface RunEnvironment {
+  node: string;
+  platform: string;
+  arch: string;
+  mode: 'readonly' | 'write';
+  platform_id: string;
+  base_url_configured: boolean;
+}
+
+export interface ScenarioResult {
+  id: string;
+  caseId?: string;
+  case_id?: string;
+  kind?: SemanticSampleKind;
+  round?: number;
+  status: string;
+  ok: boolean;
+  attempts?: number;
+  durationMs?: number;
+  category?: string;
+  error?: string;
+  observation_refs?: string[];
+  details?: Record<string, unknown>;
+  contract?: Record<string, unknown>;
+  repro?: { case_id: string; file: string };
+}
+
+export interface RunResult {
+  result_schema_version: 1;
+  ok: boolean;
+  command: 'run';
+  status: string;
+  runId: string;
+  mode: 'readonly' | 'write';
+  ruleset_version: string;
+  environment: RunEnvironment;
+  rounds: number;
+  cancelled: boolean;
+  scenarios: ScenarioResult[];
+  skipped: Array<{ id: string; reason: string }>;
+  preflight: Record<string, unknown>;
+  cleanup: Record<string, unknown>;
+  observations: Record<string, unknown>;
+}
+
 export interface RuntimeObserver {
   record(type: string, data?: Record<string, unknown>): string;
   recordRequest(data: Record<string, unknown>): string;

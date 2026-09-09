@@ -8,6 +8,8 @@ import { evaluateContract, generateContractCases } from '../contracts/index.js';
 import { RuntimeObserver } from '../evidence/index.js';
 import { caseId, writeReplayPackage } from '../replay/index.js';
 
+const RESULT_SCHEMA_VERSION = 1;
+
 export async function runSoak({ manifest, adapter, args, artifactDir, processRef = process }) {
   const mode = modeFrom(args);
   if (mode === 'write') assertWriteAllowed(manifest, args, processRef.env);
@@ -22,7 +24,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   await writePreflight({ artifactDir, runId, result: preflight });
   if (!preflight.ok) {
     const observations = await persistObservations(observer, artifactDir);
-    const result = { ok: false, command: 'run', status: 'preflight_failed', runId, mode, rounds: 0, cancelled: false, scenarios: [], skipped: [], cleanup: { ok: true, results: [], pending: [] }, preflight, observations };
+    const result = runResult({ ok: false, status: 'preflight_failed', runId, mode, manifest, baseUrl, rounds: 0, cancelled: false, scenarios: [], skipped: [], cleanup: { ok: true, results: [], pending: [] }, preflight, observations });
     await writeReports({ artifactDir, result });
     return result;
   }
@@ -41,7 +43,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   if (selected.length === 0) {
     observer.record('run', { phase: 'finished', status: 'no_scenarios_selected' });
     const observations = await persistObservations(observer, artifactDir);
-    const result = { ok: false, command: 'run', status: 'no_scenarios_selected', runId, mode, rounds: 0, cancelled: false, scenarios: [], skipped, audit: [], cleanup: { ok: true, results: [], pending: [] }, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
+    const result = runResult({ ok: false, status: 'no_scenarios_selected', runId, mode, manifest, baseUrl, rounds: 0, cancelled: false, scenarios: [], skipped, audit: [], cleanup: { ok: true, results: [], pending: [] }, preflight, observations, startedAt, finishedAt: new Date().toISOString() });
     await writeReports({ artifactDir, result });
     return result;
   }
@@ -55,7 +57,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
       observer.record('browser', { phase: 'start', ok: false, error: error instanceof Error ? error.message : String(error) });
       const observations = await persistObservations(observer, artifactDir);
       const failed = { id: 'browser.lifecycle', round: 0, status: 'failed', ok: false, durationMs: 0, attempts: 1, category: classifyFailure(error), error: error instanceof Error ? error.message : String(error) };
-      const result = { ok: false, command: 'run', status: 'browser_start_failed', runId, mode, rounds: 0, cancelled: false, scenarios: [failed], skipped, audit: [], cleanup: { ok: true, results: [], pending: [] }, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
+      const result = runResult({ ok: false, status: 'browser_start_failed', runId, mode, manifest, baseUrl, rounds: 0, cancelled: false, scenarios: [failed], skipped, audit: [], cleanup: { ok: true, results: [], pending: [] }, preflight, observations, startedAt, finishedAt: new Date().toISOString() });
       await writeReports({ artifactDir, result });
       return result;
     }
@@ -89,7 +91,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   const cancelled = schedule.cancelled || controller.signal.aborted;
   observer.record('run', { phase: 'finished', status: runtimeError ? 'runner_failed' : 'completed', cancelled, cleanupOk: cleanupResult.ok });
   const observations = await persistObservations(observer, artifactDir);
-  const result = { ok: scenarios.length > 0 && scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, command: 'run', status: runtimeError ? 'runner_failed' : scenarios.length === 0 && args.caseId ? 'case_not_found' : 'completed', runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', environment: environmentSummary(manifest, mode), scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
+  const result = runResult({ ok: scenarios.length > 0 && scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, status: runtimeError ? 'runner_failed' : scenarios.length === 0 && args.caseId ? 'case_not_found' : 'completed', runId, mode, manifest, baseUrl, scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, observations, startedAt, finishedAt: new Date().toISOString(), rounds: schedule.completed, cancelled });
   await writeReports({ artifactDir, result });
   return result;
 }
@@ -201,4 +203,5 @@ function scheduleTarget(args) {
 function modeFrom(args) { const mode = String(args.mode || 'readonly'); if (mode !== 'readonly' && mode !== 'write') throw new Error(`mode_invalid: ${mode}`); return mode; }
 function assertWriteAllowed(manifest, args, env) { if (manifest.platform.production === true) throw new Error('write_rejected_production_target'); if (args.allowWrites !== true || env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`); }
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
-function environmentSummary(manifest, mode) { return { node: process.version, platform: process.platform, arch: process.arch, mode, platform_id: manifest.platform.id, base_url_configured: true }; }
+function runResult({ ok, status, runId, mode, manifest, baseUrl, ...rest }) { return { result_schema_version: RESULT_SCHEMA_VERSION, ok, command: 'run', status, runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', environment: environmentSummary(manifest, mode, baseUrl), ...rest }; }
+function environmentSummary(manifest, mode, baseUrl) { return { node: process.version, platform: process.platform, arch: process.arch, mode, platform_id: manifest.platform.id, base_url_configured: Boolean(baseUrl) }; }

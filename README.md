@@ -202,6 +202,12 @@ agent-soak replay --run-id <原 run-id> --case-id <case-id> --json
 失败结果包含稳定的 `code` 字段，例如 `SCENARIO_FAILED`、
 `PREFLIGHT_FAILED` 和 `CLEANUP_FAILED`。
 
+`run` 的 JSON 结果包含稳定的 `result_schema_version`（当前为 `1`）。无论是
+预检查失败、筛选后没有可执行场景、浏览器启动失败还是正常结束，都会返回一致的
+`runId`、`mode`、`ruleset_version`、`environment`、`rounds`、`cancelled`、
+`scenarios`、`cleanup`、`preflight` 和 `observations` 字段，便于 CI 与 Skill
+按状态处理，而不必根据失败阶段猜测结果结构。
+
 `doctor` 用于检查 Node.js、Manifest、Adapter 和基础环境变量；需要浏览器时
 可增加 `--browser` 检查 Playwright 是否可加载。
 
