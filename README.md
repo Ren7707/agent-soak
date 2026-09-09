@@ -285,7 +285,9 @@ Manifest、契约快照、中文说明和未实现的 Adapter 占位。它不会
 `ruleset_version` 会随运行结果保存，便于确认规则变化。Manifest 还可选设置
 `plan_file` 和 `conflict_report_file`，运行结果会记录对应的
 `plan_fingerprint`、`conflict_report_fingerprint`，并按 Adapter 文件内容记录
-`adapter_fingerprint`。引用文件缺失时对应值为 `null`，不会阻断旧 Adapter。
+`adapter_fingerprint`。如 Adapter 依赖本地辅助模块，可在 Manifest 中声明
+`adapter_files`，这些文件会按路径和内容参与 Adapter 指纹。引用文件缺失时对应值为
+`null`，不会阻断旧 Adapter。
 `compare` 只读取两个本地 `run.json`，按场景和案例比较状态，报告新增、删除、回归和修复，
 不会重新执行测试或修改产物。
 
@@ -314,7 +316,8 @@ npm run check
 
 当前项目使用 Node.js 20 或更高版本。
 
-CI 会在 Node.js 20、22 和 24 上执行检查、测试、Demo 运行和产物 `verify`。Demo 或产物验证失败时，Actions 会上传报告和复现包。提交前建议运行：
+CI 会在 Node.js 20、22 和 24 上执行检查、测试、完整 Demo 回归和产物 `verify`。
+Demo 回归会验证写入、语义缺陷识别、清理和远程残留扫描；预期发现 Demo 语义缺陷时使用场景退出码 `4`，只有断言失败才会让 CI 失败。Demo 或产物验证失败时，Actions 会上传报告和复现包。提交前建议运行：
 
 ```powershell
 node src/cli.js doctor --json

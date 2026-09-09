@@ -3,6 +3,7 @@ export interface PlatformManifest {
   ruleset_version?: string;
   plan_file?: string;
   conflict_report_file?: string;
+  adapter_files?: string[];
   adapter: string;
   platform: {
     id: string;

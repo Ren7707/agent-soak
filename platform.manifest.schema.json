@@ -10,6 +10,7 @@
     "ruleset_version": { "type": "string", "minLength": 1 },
     "plan_file": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" },
     "conflict_report_file": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" },
+    "adapter_files": { "type": "array", "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" }, "uniqueItems": true },
     "adapter": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|[/\\])\\.\\.(?:[/\\]|$)).+$" },
     "platform": {
       "type": "object",

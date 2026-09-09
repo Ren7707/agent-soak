@@ -31,20 +31,41 @@ jobs:
           DEMO_PLATFORM_BASE_URL: http://127.0.0.1:4317
           ALLOW_TEST_WRITES: true
         run: |
-          set +e
+          set -u
+          server_pid=""
+          cleanup() {
+            if [ -n "$server_pid" ]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT INT TERM
           node examples/demo-platform/server.js > demo-platform.log 2>&1 &
           server_pid=$!
+          health_status=1
           for attempt in {1..50}; do
-            curl --fail --silent "$DEMO_PLATFORM_BASE_URL/health" > /dev/null && break
+            if curl --fail --silent "$DEMO_PLATFORM_BASE_URL/health" > /dev/null; then
+              health_status=0
+              break
+            fi
             sleep 0.1
           done
-          node src/cli.js run --rounds 1 --mode readonly --scenario health --artifacts artifacts --json
+          if [ "$health_status" -ne 0 ]; then exit 1; fi
+          set +e
+          node src/cli.js run --rounds 1 --mode write --allow-writes --artifacts artifacts --json > demo-run.json
           run_status=$?
-          run_id=$(find artifacts -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | tail -n 1)
-          if [ -n "$run_id" ]; then node src/cli.js verify --run-id "$run_id" --artifacts artifacts --json; verify_status=$?; else verify_status=1; fi
-          kill "$server_pid" 2>/dev/null || true
-          wait "$server_pid" 2>/dev/null || true
-          if [ "$run_status" -ne 0 ] || [ "$verify_status" -ne 0 ]; then exit 1; fi
+          set -e
+          RUN_STATUS="$run_status" node - <<'NODE'
+          const fs = require('node:fs');
+          const run = JSON.parse(fs.readFileSync('demo-run.json', 'utf8'));
+          if (Number(process.env.RUN_STATUS) !== 4) throw new Error(`unexpected_demo_exit:${process.env.RUN_STATUS}`);
+          if (run.cleanup?.ok !== true) throw new Error('demo_cleanup_failed');
+          if (!run.scenarios?.some((item) => item.status === 'confirmed_bug' && item.contract?.category === 'semantic_constraint_missing')) throw new Error('demo_semantic_regression_not_detected');
+          if (!run.runId) throw new Error('demo_run_id_missing');
+          NODE
+          run_id=$(node -p "JSON.parse(require('fs').readFileSync('demo-run.json','utf8')).runId")
+          node src/cli.js verify --run-id "$run_id" --artifacts artifacts --json
+          node src/cli.js residue --manifest platform.manifest.json --remote --artifacts artifacts --json
       - name: Upload failed demo artifacts
         if: failure()
         uses: actions/upload-artifact@v4
@@ -52,5 +73,6 @@ jobs:
           name: demo-artifacts-node-${{ matrix.node-version }}
           path: |
             artifacts
+            demo-run.json
             demo-platform.log
           if-no-files-found: ignore

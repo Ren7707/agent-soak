@@ -5,10 +5,11 @@ import path from 'node:path';
 export async function resolveRunProvenance({ manifestPath, manifest } = {}) {
   const root = manifestPath ? path.dirname(path.resolve(manifestPath)) : undefined;
   const adapterPath = root && manifest?.adapter ? path.resolve(root, manifest.adapter) : undefined;
+  const adapterFiles = [manifest?.adapter, ...(manifest?.adapter_files || [])].filter(Boolean);
   return {
     plan_fingerprint: await fingerprintPlan(root, manifest?.plan_file),
     conflict_report_fingerprint: await fingerprintFile(root, manifest?.conflict_report_file),
-    adapter_fingerprint: adapterPath ? await fingerprintFile(undefined, adapterPath) : null,
+    adapter_fingerprint: adapterPath ? await fingerprintFiles(root, adapterFiles) : null,
   };
 }
 
@@ -30,6 +31,17 @@ async function fingerprintFile(root, file) {
   const resolved = root ? path.resolve(root, file) : path.resolve(file);
   const raw = await fs.readFile(resolved).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
   return raw === null ? null : sha256(raw);
+}
+
+async function fingerprintFiles(root, files) {
+  const entries = [];
+  for (const file of [...new Set(files)].sort()) {
+    const resolved = root ? path.resolve(root, file) : path.resolve(file);
+    const raw = await fs.readFile(resolved).catch((error) => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (raw === null) return null;
+    entries.push({ file, sha256: sha256(raw) });
+  }
+  return sha256(JSON.stringify(entries));
 }
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
