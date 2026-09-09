@@ -6,6 +6,7 @@ import { BrowserSession } from '../browser/session.js';
 import { writePreflight, writeReports } from '../reporters/index.js';
 import { evaluateContract, generateContractCases } from '../contracts/index.js';
 import { RuntimeObserver } from '../evidence/index.js';
+import { caseId, writeReplayPackage } from '../replay/index.js';
 
 export async function runSoak({ manifest, adapter, args, artifactDir, processRef = process }) {
   const mode = modeFrom(args);
@@ -29,6 +30,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   const skipped = [];
   const selected = manifest.scenarios.flatMap((scenario) => {
     const implementation = adapter.scenarios.find((item) => item.id === scenario.id);
+    if (args.scenario && scenario.id !== args.scenario) { skipped.push({ id: scenario.id, reason: 'scenario_filter' }); return []; }
     if (args.suite && scenario.suite !== args.suite) { skipped.push({ id: scenario.id, reason: 'suite_filter' }); return []; }
     if (args.tag && !(scenario.tags || []).includes(args.tag)) { skipped.push({ id: scenario.id, reason: 'tag_filter' }); return []; }
     if (scenario.mode === 'write' && mode === 'readonly') { skipped.push({ id: scenario.id, reason: 'write_mode_not_authorized' }); return []; }
@@ -70,7 +72,7 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
     schedule = await runSchedule({ ...target, intervalMs: args.interval ? parseDuration(String(args.interval)) : 0, signal: controller.signal, onRound: async (round) => {
       for (const entry of selected) {
         if (controller.signal.aborted) break;
-        scenarios.push(...await runScenario(entry, { baseUrl, runId, round, signal: controller.signal, supervised: args.supervise === true, browser, registry, manifest, observer }));
+        scenarios.push(...await runScenario(entry, { baseUrl, runId, round, signal: controller.signal, supervised: args.supervise === true, browser, registry, manifest, observer, artifactDir, mode, caseId: args.caseId, replayCase: args.replayCase }));
       }
       await registry.persist();
     }});
@@ -87,16 +89,22 @@ export async function runSoak({ manifest, adapter, args, artifactDir, processRef
   const cancelled = schedule.cancelled || controller.signal.aborted;
   observer.record('run', { phase: 'finished', status: runtimeError ? 'runner_failed' : 'completed', cancelled, cleanupOk: cleanupResult.ok });
   const observations = await persistObservations(observer, artifactDir);
-  const result = { ok: scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, command: 'run', status: runtimeError ? 'runner_failed' : 'completed', runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
+  const result = { ok: scenarios.length > 0 && scenarios.every((item) => item.ok) && cleanupResult.ok && !cancelled, command: 'run', status: runtimeError ? 'runner_failed' : scenarios.length === 0 && args.caseId ? 'case_not_found' : 'completed', runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', environment: environmentSummary(manifest, mode), scenarios, skipped, audit: browser?.audit || [], cleanup: cleanupResult, preflight, observations, startedAt, finishedAt: new Date().toISOString() };
   await writeReports({ artifactDir, result });
   return result;
 }
 
 async function runScenario(entry, context) {
   const contract = entry.implementation.contract;
-  const cases = contract ? generateContractCases(contract) : [{ id: 'baseline', kind: 'valid', input: {}, expected: {} }];
+  const cases = context.replayCase?.scenario_id === entry.implementation.id
+    ? [context.replayCase]
+    : contract ? generateContractCases(contract) : [{ id: 'baseline', kind: 'valid', input: {}, expected: {} }];
   const results = [];
-  for (const testCase of cases) results.push(await runScenarioCase(entry, context, contract, testCase));
+  for (const testCase of cases) {
+    const stableId = testCase.case_id || caseId({ scenarioId: entry.implementation.id, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified' });
+    if (context.caseId && stableId !== context.caseId) continue;
+    results.push(await runScenarioCase(entry, context, contract, testCase));
+  }
   return results;
 }
 
@@ -118,7 +126,9 @@ async function runScenarioCase(entry, context, contract, testCase) {
       observer.recordAssertion({ name: `contract:${testCase.id}`, expected: testCase.expected || {}, actual: details, status: contractResult.status, mismatches: contractResult.mismatches });
       observer.record('scenario', { phase: 'finished', status: contractResult.status, ok: contractResult.ok });
       observationRefs.push(...observer.ids);
-      return { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, kind: testCase.kind, round: context.round, status: contractResult.status, ok: contractResult.ok, attempts: attempt, durationMs: Date.now() - started, details, observation_refs: [...new Set(observationRefs)], ...(contract ? { contract: contractResult } : {}) };
+      const result = { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, case_id: testCase.case_id || caseId({ scenarioId: entry.implementation.id, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified' }), kind: testCase.kind, round: context.round, status: contractResult.status, ok: contractResult.ok, attempts: attempt, durationMs: Date.now() - started, details, observation_refs: [...new Set(observationRefs)], ...(contract ? { contract: contractResult } : {}) };
+      if (!result.ok) result.repro = await writeReplayPackage({ artifactDir: context.artifactDir, runId: context.runId, scenario: entry.manifest, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified', mode: context.mode, status: result.status, category: result.contract?.category, observationRefs: result.observation_refs });
+      return result;
     } catch (error) {
       lastError = error;
       observer.record('scenario', { phase: 'error', error: error instanceof Error ? error.message : String(error) });
@@ -128,7 +138,9 @@ async function runScenarioCase(entry, context, contract, testCase) {
       context.browser?.setObserver(previousBrowserObserver);
     }
   }
-  return { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, kind: testCase.kind, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError), observation_refs: [...new Set(observationRefs)] };
+  const result = { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, case_id: testCase.case_id || caseId({ scenarioId: entry.implementation.id, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified' }), kind: testCase.kind, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError), observation_refs: [...new Set(observationRefs)] };
+  result.repro = await writeReplayPackage({ artifactDir: context.artifactDir, runId: context.runId, scenario: entry.manifest, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified', mode: context.mode, status: result.status, category: result.category, observationRefs: result.observation_refs });
+  return result;
 }
 
 async function runScenarioAttempt(entry, context) {
@@ -189,3 +201,4 @@ function scheduleTarget(args) {
 function modeFrom(args) { const mode = String(args.mode || 'readonly'); if (mode !== 'readonly' && mode !== 'write') throw new Error(`mode_invalid: ${mode}`); return mode; }
 function assertWriteAllowed(manifest, args, env) { if (manifest.platform.production === true) throw new Error('write_rejected_production_target'); if (args.allowWrites !== true || env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`); }
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
+function environmentSummary(manifest, mode) { return { node: process.version, platform: process.platform, arch: process.arch, mode, platform_id: manifest.platform.id, base_url_configured: true }; }

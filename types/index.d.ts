@@ -57,6 +57,8 @@ export interface SemanticPolicy {
 
 export interface ContractCase {
   id?: string;
+  case_id?: string;
+  case_id_source?: string;
   kind?: SemanticSampleKind;
   input?: Record<string, unknown>;
   expected?: Record<string, unknown>;
@@ -124,6 +126,10 @@ export interface ModelPlanScenario {
   mode?: 'readonly' | 'write';
   contract_id?: string;
   evidence_refs?: string[];
+  capabilities?: string[];
+  suite?: string;
+  tags?: string[];
+  priority?: 'low' | 'medium' | 'high' | 'critical';
 }
 
 export interface ModelTestPlan {
@@ -134,6 +140,23 @@ export interface ModelTestPlan {
   requires_write_approval?: boolean;
   contracts: ScenarioContract[];
   scenarios: ModelPlanScenario[];
+}
+
+export interface ReplayPackage {
+  version: 1;
+  runId: string;
+  case_id: string;
+  scenario_id: string;
+  case_id_source: string;
+  kind: SemanticSampleKind;
+  input: Record<string, unknown>;
+  expected: Record<string, unknown>;
+  sequence: string[];
+  ruleset_version: string;
+  mode: 'readonly' | 'write';
+  status: string;
+  category?: string;
+  observation_refs: string[];
 }
 
 export interface RuntimeObserver {

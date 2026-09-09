@@ -356,6 +356,51 @@ test('CLI persists runtime observations and applies adapter observation results'
   }
 });
 
+test('CLI writes a redacted reproduction package and replays its historical input', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-replay-'));
+  const artifactDir = path.join(cwd, 'artifacts');
+  const manifest = { schema_version: 1, ruleset_version: 'rules-1', adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'device', mode: 'readonly' }] };
+  const adapter = (input) => `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'device', contract: { field: 'platform', semantic_type: 'operating_system_platform', status: 'approved', approved: true, cases: [{ id: 'semantic-case', kind: 'nearby_semantic', input: { platform: '${input}' }, expected: { accepted: false } }] }, async run({ testCase }) { return { accepted: true, input: testCase.input, token: 'Bearer private-token' }; } }], async deleteResource() {} }; }`;
+  try {
+    await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify(manifest));
+    await fs.writeFile(path.join(cwd, 'adapter.js'), adapter('old generator value'));
+    const first = await runCli(['run', '--rounds', '1', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    const firstBody = JSON.parse(first.stdout);
+    assert.equal(first.code, 4);
+    const scenario = firstBody.scenarios[0];
+    assert.match(scenario.case_id, /^case-[a-f0-9]{20}$/);
+    assert.ok(scenario.repro.file);
+    assert.equal(firstBody.environment.platform_id, 'test');
+    const packagePath = path.join(artifactDir, scenario.repro.file);
+    const packageValue = JSON.parse(await fs.readFile(packagePath, 'utf8'));
+    assert.equal(packageValue.scenario_id, 'device');
+    assert.equal(packageValue.case_id, scenario.case_id);
+    assert.equal(packageValue.input.platform, 'old generator value');
+    assert.equal(JSON.stringify(packageValue).includes('private-token'), false);
+    assert.equal(JSON.stringify(packageValue).includes('Bearer'), false);
+
+    await fs.writeFile(path.join(cwd, 'adapter.js'), adapter('new generator value'));
+    const replay = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', scenario.case_id, '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    const replayBody = JSON.parse(replay.stdout);
+    assert.equal(replay.code, 4);
+    assert.equal(replayBody.replay_of.runId, firstBody.runId);
+    assert.notEqual(replayBody.runId, firstBody.runId);
+    assert.equal(replayBody.scenarios.length, 1);
+    assert.equal(replayBody.scenarios[0].details.input.platform, 'old generator value');
+    assert.equal(replayBody.scenarios[0].case_id, scenario.case_id);
+
+    const missing = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', 'case-00000000000000000000', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    assert.equal(missing.code, 2);
+    assert.equal(JSON.parse(missing.stdout).detail_code, 'ENOENT');
+
+    const mismatch = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', scenario.case_id, '--scenario', 'other', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    assert.equal(mismatch.code, 2);
+    assert.equal(JSON.parse(mismatch.stdout).detail_code, 'replay_scenario_mismatch');
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 function runCli(args, { cwd, env = process.env }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], { cwd, env: { ...process.env, ...env } });

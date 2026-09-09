@@ -14,6 +14,7 @@ import { synthesizeContracts } from './contracts/index.js';
 import { RuntimeObserver } from './evidence/index.js';
 import { normalizeModelPlanFile, scaffoldFromPlanFile, approveModelPlanFile } from './plans/index.js';
 import { compareRunFiles } from './reports/compare.js';
+import { loadReplayPackage } from './replay/index.js';
 
 const PACKAGE_VERSION = JSON.parse(await fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8')).version;
 const HELP = `agent-soak <command> [options]
@@ -31,6 +32,7 @@ Commands:
   scaffold                Generate a safe Adapter/Manifest skeleton from an approved plan
   approve                 Record an explicit review decision for a draft plan
   compare                 Compare two local run artifacts
+  replay                  Replay one failed case from a local reproduction package
   run                     Run scenarios by round count or duration
   cleanup                 Retry cleanup for a previous run
   residue                 Find pending cleanup records in an artifact directory
@@ -42,6 +44,8 @@ Options:
   --duration <value>      Duration such as 30s, 10m, or 2h
   --interval <value>      Delay between rounds
   --run-id <id>           Reuse a safe run identifier for recovery
+  --case-id <id>          Select one stable reproduction case
+  --scenario <id>         Select one scenario
   --artifacts <path>      Artifact directory (default: artifacts)
   --allow-writes          Explicitly authorize write or cleanup operations
   --browser               Include browser-capable scenarios
@@ -78,6 +82,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (args.command === 'discover') return finish({ ok: true, command: 'discover', ...(await adapter.discover({ manifest, baseUrl: resolveBaseUrl(manifest) })) }, wantsJson);
     if (args.command === 'validate') return finish(await validate(manifest, adapter, args), wantsJson);
     if (args.command === 'run') return finish(await runSoak({ manifest, adapter, args, artifactDir: path.resolve(String(args.artifacts || 'artifacts')) }), wantsJson);
+    if (args.command === 'replay') return finish(await replay(manifest, adapter, args), wantsJson);
     if (args.command === 'cleanup') return finish(await cleanup(manifest, adapter, args), wantsJson);
     if (args.command === 'residue') return finish(await residue(args, manifest, adapter), wantsJson);
     throw new Error(`command_unknown: ${args.command}`);
@@ -85,6 +90,17 @@ export async function main(argv = process.argv.slice(2)) {
     print({ ok: false, code: ERROR_CODES.INPUT_INVALID, error: error instanceof Error ? error.message : String(error), detail_code: codeFromError(error) }, wantsJson);
     return EXIT_CODES.input;
   }
+}
+
+async function replay(manifest, adapter, args) {
+  if (!args.runId) throw new Error('replay_run_id_required');
+  if (!args.caseId) throw new Error('replay_case_id_required');
+  const artifactDir = path.resolve(String(args.artifacts || 'artifacts'));
+  const packageValue = await loadReplayPackage({ artifactDir, runId: args.runId, caseId: args.caseId });
+  if (args.scenario && args.scenario !== packageValue.scenario_id) throw new Error('replay_scenario_mismatch');
+  const replayArgs = { ...args, command: 'run', rounds: '1', duration: undefined, scenario: packageValue.scenario_id, caseId: packageValue.case_id, replayCase: packageValue, runId: `replay-${Date.now()}` };
+  const result = await runSoak({ manifest, adapter, args: replayArgs, artifactDir });
+  return { ...result, replay_of: { runId: packageValue.runId, case_id: packageValue.case_id, package: packageValue.file } };
 }
 
 async function validate(manifest, adapter, args) {
@@ -135,7 +151,7 @@ function assertWriteAllowed(manifest, args) { if (manifest.platform.production =
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
 function codeFromError(error) { return (error instanceof Error ? error.message : String(error)).split(':')[0]; }
 function finish(result, json) { const code = resultCode(result); print({ ...result, ...(code ? { code } : {}) }, json); if (result.ok !== false) return EXIT_CODES.success; if (['validate', 'discover', 'doctor'].includes(result.command) || result.status === 'preflight_failed') return EXIT_CODES.preflight; if (['cleanup', 'residue'].includes(result.command)) return EXIT_CODES.cleanup; return exitCodeForResult(result); }
-function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force', 'version', 'allowAmbiguous']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'artifacts', 'prefix', 'source', 'analysis', 'output', 'input', 'evidence', 'id', 'suite', 'tag', 'baseline', 'current', 'conflicts', 'reviewer', 'reason']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = rawName.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
+function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force', 'version', 'allowAmbiguous']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'caseId', 'scenario', 'artifacts', 'prefix', 'source', 'analysis', 'output', 'input', 'evidence', 'id', 'suite', 'tag', 'baseline', 'current', 'conflicts', 'reviewer', 'reason']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = rawName.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
 function print(value, json) { console.log(json ? JSON.stringify(value) : JSON.stringify(value, null, 2)); return EXIT_CODES.success; }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();

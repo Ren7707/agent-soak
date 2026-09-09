@@ -57,6 +57,7 @@ node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapt
 - 带审核人、理由和时间记录的测试计划审批流程
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
+- 稳定案例 ID、失败案例最小复现包和单案例重放
 
 ## 平台接入
 
@@ -194,6 +195,7 @@ agent-soak plan --input <模型计划> --evidence <源码证据> --output <草�
 agent-soak approve --input <草稿计划> --conflicts <冲突报告> --output <已审核计划> --reviewer <审核人> --reason <审核理由> --json
 agent-soak scaffold --input <已审核计划> --output <适配器目录> --id <平台ID> --json
 agent-soak compare --baseline <旧 run.json> --current <新 run.json> --json
+agent-soak replay --run-id <原 run-id> --case-id <case-id> --json
 ```
 
 所有命令都支持 `--json`，便于 Agent 或 CI 读取结构化结果。
@@ -213,6 +215,13 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 运行观测和模型推断之间的差异，输出 `semantic_boundary_ambiguous` 和
 `review_required`，不会静默选择某一方，也不会把冲突直接报告为确定缺陷。
 规则来源优先级只用于排序和人工审查提示，不能替代产品规则确认。
+
+失败或已确认异常的案例会写入 `artifacts/<run-id>/repro/`。`case_id` 根据场景、
+输入、预期、执行序列和规则版本稳定计算，便于跨运行定位同一个案例。复现包只
+保存脱敏后的输入、预期、案例类型、规则版本和观测引用，不包含目标 URL、凭据或
+源码正文。`replay` 默认只读，并使用新的运行目录，不覆盖原始产物；写案例仍需
+CLI 参数和 Manifest 环境变量双重授权。指定不存在的 case ID 或不匹配的场景时，
+命令必须失败，不能以空运行成功。
 
 源码分析会读取有限的相邻源码行来识别跨行枚举，并根据路径和上下文标记
 `frontend`、`backend_validator`、`openapi`、`runtime` 或普通 `source`。对于结构化

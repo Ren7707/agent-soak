@@ -11,8 +11,18 @@ import { redact } from '../src/core/redact.js';
 import { evaluateContract, evaluateInvariants, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
 import { analyzeSource, inspectRuleConflicts } from '../src/knowledge/index.js';
 import { normalizeModelPlan, validateModelPlan } from '../src/plans/index.js';
+import { caseId } from '../src/replay/index.js';
 
 const manifest = { schema_version: 1, adapter: './adapter.js', platform: { id: 'demo', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_', production: false }, capabilities: ['health'], scenarios: [{ id: 'health', mode: 'readonly', capabilities: ['health'] }] };
+
+test('reproduction case ids are stable and change with inputs or rules', () => {
+  const testCase = { id: 'platform-nearby', kind: 'nearby_semantic', input: { platform: 'test computer 0001' }, expected: { accepted: false }, sequence: [] };
+  const first = caseId({ scenarioId: 'device', testCase, rulesetVersion: 'rules-1' });
+  assert.equal(first, caseId({ scenarioId: 'device', testCase, rulesetVersion: 'rules-1' }));
+  assert.notEqual(first, caseId({ scenarioId: 'device', testCase: { ...testCase, input: { platform: 'office workstation' } }, rulesetVersion: 'rules-1' }));
+  assert.notEqual(first, caseId({ scenarioId: 'device', testCase, rulesetVersion: 'rules-2' }));
+  assert.match(first, /^case-[a-f0-9]{20}$/);
+});
 
 test('semantic contract generates nearby, normalization, and missing cases', () => {
   const cases = generateContractCases({ fields: [{ path: 'platform', semantic_type: 'operating_system_platform', examples: ['linux'], negative_examples: ['test computer 0001'], policy: { normalize_case: true, trim_whitespace: true } }] });
