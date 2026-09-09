@@ -34,7 +34,10 @@ node src/cli.js approve --input ./artifacts/draft-plan.json --conflicts ./artifa
 node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapters/personal-demo --id personal-demo --json
 ```
 
-测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML 和 HTML。
+测试报告写入 `artifacts/<run-id>/`，包括 JSON、Markdown、JUnit XML、HTML 和
+`artifact-manifest.json`。清单为运行目录内每个普通文件记录相对路径、字节数和
+SHA-256，便于 CI 或 Skill 在上传、归档和复现前确认产物没有被修改；清单自身不参与
+哈希计算。
 
 ## 核心能力
 

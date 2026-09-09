@@ -212,6 +212,13 @@ export interface RunDiagnostics {
   failures: Array<{ scenario_id: string; case_id?: string; category?: string; observation_refs: string[]; repro?: string }>;
 }
 
+export interface ArtifactManifest {
+  version: 1;
+  run_id: string;
+  result_schema_version: 1;
+  files: Array<{ path: string; bytes: number; sha256: string }>;
+}
+
 export interface RuntimeObserver {
   record(type: string, data?: Record<string, unknown>): string;
   recordRequest(data: Record<string, unknown>): string;

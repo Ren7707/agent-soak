@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { loadManifest } from '../src/manifest.js';
 import { planFingerprint } from '../src/plans/fingerprint.js';
 
@@ -381,6 +382,15 @@ test('CLI persists runtime observations and applies adapter observation results'
     assert.ok(observations.events.some((event) => event.type === 'request'));
     assert.ok(observations.events.some((event) => event.type === 'page'));
     assert.equal(body.scenarios[0].details.resourceCreated, false);
+    const artifactManifest = JSON.parse(await fs.readFile(path.join(artifactDir, body.runId, 'artifact-manifest.json'), 'utf8'));
+    assert.equal(artifactManifest.version, 1);
+    assert.equal(artifactManifest.run_id, body.runId);
+    assert.ok(artifactManifest.files.some((file) => file.path === 'run.json'));
+    assert.equal(artifactManifest.files.some((file) => file.path === 'artifact-manifest.json'), false);
+    const runFile = await fs.readFile(path.join(artifactDir, body.runId, 'run.json'));
+    const runEntry = artifactManifest.files.find((file) => file.path === 'run.json');
+    assert.equal(runEntry.bytes, runFile.byteLength);
+    assert.equal(runEntry.sha256, createHash('sha256').update(runFile).digest('hex'));
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
