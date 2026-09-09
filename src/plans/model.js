@@ -40,6 +40,7 @@ function validateApproval(approval) {
   for (const key of ['reviewer', 'reason', 'approved_at']) if (typeof approval[key] !== 'string' || !approval[key]) throw new Error(`model_plan_approval_${key}_invalid`);
   if (typeof approval.conflict_override !== 'boolean') throw new Error('model_plan_approval_conflict_override_invalid');
   for (const key of ['conflict_fields', 'conflict_categories']) if (!Array.isArray(approval[key]) || approval[key].some((item) => typeof item !== 'string' || !item)) throw new Error(`model_plan_approval_${key}_invalid`);
+  for (const key of ['plan_fingerprint', 'conflict_report_fingerprint']) if (approval[key] !== undefined && approval[key] !== null && (typeof approval[key] !== 'string' || !/^[a-f0-9]{64}$/.test(approval[key]))) throw new Error(`model_plan_approval_${key}_invalid`);
 }
 
 export function normalizeModelPlan(plan, options) {

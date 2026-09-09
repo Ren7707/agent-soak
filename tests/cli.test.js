@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadManifest } from '../src/manifest.js';
+import { planFingerprint } from '../src/plans/fingerprint.js';
 
 const root = new URL('..', import.meta.url);
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
@@ -90,6 +91,8 @@ test('CLI approve records an auditable plan decision and blocks unresolved confl
     assert.equal(saved.approval.reviewer, 'owner');
     assert.equal(saved.approval.conflict_override, true);
     assert.equal(saved.contracts[0].review_required, false);
+    assert.match(saved.approval.plan_fingerprint, /^[a-f0-9]{64}$/);
+    assert.match(saved.approval.conflict_report_fingerprint, /^[a-f0-9]{64}$/);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
@@ -155,6 +158,8 @@ test('CLI scaffold generates a safe skeleton only from an approved plan', async 
       contracts: [{ id: 'device', field: 'platform', semantic_type: 'operating_system_platform', description: '企业系统 https://private.example.test', evidence_refs: ['e-1'], policy: { api_key: 'secret-token' }, cases: [{ input: { email: 'owner@example.com' } }] , status: 'approved', review_required: false, approved: true }],
       scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device' }],
     };
+    plan.approval = { reviewer: 'owner', reason: '已完成测试计划审核', approved_at: '2026-09-09T00:00:00.000Z', conflict_override: false, conflict_fields: [], conflict_categories: [], plan_fingerprint: '' , conflict_report_fingerprint: null };
+    plan.approval.plan_fingerprint = planFingerprint(plan);
     await fs.writeFile(inputPath, JSON.stringify(plan));
     const result = await runCli(['scaffold', '--input', inputPath, '--output', outputDir, '--id', 'personal-demo', '--json'], { cwd });
     const body = JSON.parse(result.stdout);
@@ -169,6 +174,13 @@ test('CLI scaffold generates a safe skeleton only from an approved plan', async 
     assert.ok(generated.every((text) => !text.includes('private.example.test') && !text.includes('owner@example.com') && !text.includes('secret-token')));
     const duplicate = await runCli(['scaffold', '--input', inputPath, '--output', outputDir, '--id', 'personal-demo', '--json'], { cwd });
     assert.equal(duplicate.code, 2);
+    const tampered = JSON.parse(await fs.readFile(inputPath, 'utf8'));
+    tampered.scenarios[0].mode = 'readonly';
+    const tamperedPath = path.join(cwd, 'tampered.json');
+    await fs.writeFile(tamperedPath, JSON.stringify(tampered));
+    const mismatch = await runCli(['scaffold', '--input', tamperedPath, '--output', path.join(cwd, 'adapters', 'tampered'), '--id', 'tampered', '--json'], { cwd });
+    assert.equal(mismatch.code, 2);
+    assert.match(JSON.parse(mismatch.stdout).detail_code, /scaffold_approval_fingerprint_mismatch/);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
@@ -183,7 +195,10 @@ test('CLI scaffold rejects drafts and output paths outside the workspace', async
     assert.equal(draft.code, 2);
     assert.match(JSON.parse(draft.stdout).detail_code, /scaffold_plan_not_approved/);
     const approvedPath = path.join(cwd, 'approved.json');
-    await fs.writeFile(approvedPath, JSON.stringify({ version: 1, status: 'approved', review_required: false, approved: true, contracts: [], scenarios: [{ id: 'check' }] }));
+    const approvedPlan = { version: 1, status: 'approved', review_required: false, approved: true, contracts: [], scenarios: [{ id: 'check' }] };
+    approvedPlan.approval = { reviewer: 'owner', reason: '已完成测试计划审核', approved_at: '2026-09-09T00:00:00.000Z', conflict_override: false, conflict_fields: [], conflict_categories: [], plan_fingerprint: '', conflict_report_fingerprint: null };
+    approvedPlan.approval.plan_fingerprint = planFingerprint(approvedPlan);
+    await fs.writeFile(approvedPath, JSON.stringify(approvedPlan));
     const outside = await runCli(['scaffold', '--input', approvedPath, '--output', path.join(cwd, '..', 'outside'), '--id', 'demo', '--json'], { cwd });
     assert.equal(outside.code, 2);
     assert.match(JSON.parse(outside.stdout).detail_code, /scaffold_output_invalid/);

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { validateManifest } from '../manifest.js';
 import { validateModelPlan } from './model.js';
+import { planFingerprint } from './fingerprint.js';
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -34,6 +35,8 @@ export async function scaffoldFromPlanFile({ cwd = process.cwd(), inputPath, out
 
 function assertApproved(plan) {
   if (plan.status !== 'approved' || plan.review_required !== false || plan.approved !== true) throw new Error('scaffold_plan_not_approved');
+  if (!plan.approval || typeof plan.approval.plan_fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(plan.approval.plan_fingerprint)) throw new Error('scaffold_approval_fingerprint_missing');
+  if (plan.approval.plan_fingerprint !== planFingerprint(plan)) throw new Error('scaffold_approval_fingerprint_mismatch');
   for (const contract of plan.contracts) if (contract.status !== 'approved' || contract.review_required !== false || contract.approved !== true) throw new Error(`scaffold_contract_not_approved: ${contract.id || '<missing>'}`);
 }
 

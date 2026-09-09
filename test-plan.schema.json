@@ -5,6 +5,10 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "contracts", "scenarios"],
+  "allOf": [{
+    "if": { "properties": { "status": { "const": "approved" } }, "required": ["status"] },
+    "then": { "required": ["approval"], "properties": { "review_required": { "const": false }, "approved": { "const": true } } }
+  }],
   "properties": {
     "version": { "const": 1 },
     "status": { "type": "string" },
@@ -34,14 +38,16 @@
     "approval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewer", "reason", "approved_at", "conflict_override", "conflict_fields", "conflict_categories"],
+      "required": ["reviewer", "reason", "approved_at", "conflict_override", "conflict_fields", "conflict_categories", "plan_fingerprint", "conflict_report_fingerprint"],
       "properties": {
         "reviewer": { "type": "string", "minLength": 1 },
         "reason": { "type": "string", "minLength": 1 },
         "approved_at": { "type": "string", "minLength": 1 },
         "conflict_override": { "type": "boolean" },
         "conflict_fields": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-        "conflict_categories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+        "conflict_categories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "plan_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "conflict_report_fingerprint": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
       }
     }
   }
