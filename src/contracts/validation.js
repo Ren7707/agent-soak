@@ -16,6 +16,7 @@ export function validateContract(contract) {
   if (contract.evidence_refs !== undefined && (!Array.isArray(contract.evidence_refs) || contract.evidence_refs.some((item) => typeof item !== 'string' || !item))) throw new Error('contract_evidence_refs_invalid');
   if (contract.evidence_summary !== undefined) validateEvidenceSummary(contract.evidence_summary);
   if (contract.metadata_conflicts !== undefined) validateMetadataConflicts(contract.metadata_conflicts);
+  if (contract.required_risks !== undefined && (!Array.isArray(contract.required_risks) || contract.required_risks.some((item) => typeof item !== 'string' || !item))) throw new Error('contract_required_risks_invalid');
   if (contract.fields !== undefined && !Array.isArray(contract.fields)) throw new Error('contract_fields_must_be_array');
   if (contract.cases !== undefined && !Array.isArray(contract.cases)) throw new Error('contract_cases_must_be_array');
   if (contract.invariants !== undefined && !Array.isArray(contract.invariants)) throw new Error('contract_invariants_must_be_array');

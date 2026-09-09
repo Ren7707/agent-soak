@@ -23,7 +23,8 @@ export async function analyzeSource({ root, maxFiles = 500, maxBytes = 512 * 102
     if (stat.size > maxBytes) continue;
     evidence.push(...extractEvidence(absoluteRoot, file, await fs.readFile(file, 'utf8'), fileIndex));
   }
-  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(mergeCandidates(evidence)) };
+  const candidates = mergeCandidates(evidence);
+  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(candidates), coverage_requirements: redact(candidates.map(({ field, semantic_type, evidence_refs, required_risks }) => ({ field, semantic_type, evidence_refs, required_risks }))) };
   if (outputPath) {
     const target = path.resolve(outputPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -189,6 +190,7 @@ function mergeCandidates(evidence) {
     const { observed_value_sets: _, observed_value_set_refs: __, metadata: ___, ...publicCandidate } = candidate;
     const descriptions = uniqueMetadataValues(candidate.metadata, 'description');
     const requiredValues = uniqueMetadataValues(candidate.metadata, 'required');
+    const requiredRisks = requiredRisksFor(candidate);
     return {
       ...publicCandidate,
       ...(descriptions.length === 1 ? { description: descriptions[0] } : {}),
@@ -196,9 +198,22 @@ function mergeCandidates(evidence) {
       evidence_summary: candidate.metadata,
       metadata_conflicts: metadataConflicts,
       conflicts: [...conflicts, ...metadataConflicts],
+      required_risks: requiredRisks,
       ...(candidate.examples.length ? { policy: { allowed_values: 'observed_or_explicit_custom' } } : {}),
     };
   });
+}
+
+function requiredRisksFor(candidate) {
+  const risks = new Set(['valid']);
+  if (candidate.examples.length > 1) risks.add('boundary');
+  if (candidate.semantic_type) risks.add('nearby_semantic');
+  if (candidate.semantic_type) risks.add('wrong_type');
+  if (candidate.metadata.some((item) => item.required === true)) risks.add('missing');
+  if (candidate.examples.some((value) => typeof value === 'string')) risks.add('normalization');
+  if (candidate.examples.length && candidate.semantic_type) risks.add('duplicate');
+  if (candidate.conflicts?.length) risks.add('relationship');
+  return [...risks];
 }
 
 function metadataConflictsFor(metadata) {

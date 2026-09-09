@@ -112,6 +112,7 @@ export interface ScenarioContract {
   approved?: boolean;
   confidence?: number;
   evidence_refs?: string[];
+  required_risks?: SemanticSampleKind[];
 }
 
 export interface SourceAnalysisResult {

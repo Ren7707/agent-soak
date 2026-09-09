@@ -144,6 +144,21 @@ test('source analysis returns evidence-bound semantic candidates', async () => {
   }
 });
 
+test('source analysis derives required risk coverage from field evidence', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-risks-'));
+  try {
+    await fs.writeFile(path.join(dir, 'device-form.tsx'), "const platformOptions = ['Windows', 'Linux'];\n");
+    const result = await analyzeSource({ root: dir });
+    const candidate = result.candidates.find((item) => item.field === 'platform');
+    assert.ok(candidate.required_risks.includes('valid'));
+    assert.ok(candidate.required_risks.includes('nearby_semantic'));
+    assert.ok(candidate.required_risks.includes('wrong_type'));
+    assert.ok(result.coverage_requirements.some((item) => item.field === 'platform'));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('source analysis redacts private source details and avoids absolute root paths', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-privacy-'));
   try {
@@ -317,6 +332,12 @@ test('plan quality reports missing execution coverage and accepts a complete sce
   const complete = assessPlanQuality({ version: 1, contracts: [{ id: 'device' }], scenarios: [{ id: 'register', mode: 'write', operation: 'create', target: 'device', contract_id: 'device', evidence_refs: ['e-1'], steps: [{ action: 'submit', transport: 'api' }, { action: 'observe', transport: 'observation' }, { action: 'cleanup', transport: 'adapter' }], assertions: ['resource_created_matches_contract'], coverage: { evidence_refs: ['e-1'], risk_types: ['nearby_semantic'] } }] }, { evidenceIds: ['e-1'] });
   assert.equal(complete.status, 'pass');
   assert.equal(complete.blocking, false);
+});
+
+test('plan quality blocks when evidence-derived risks are not covered', () => {
+  const quality = assessPlanQuality({ version: 1, contracts: [{ id: 'device', required_risks: ['valid', 'nearby_semantic'] }], scenarios: [{ id: 'register', mode: 'readonly', operation: 'read', target: 'device', contract_id: 'device', evidence_refs: ['e-1'], creates_resources: false, steps: [{ action: 'query', transport: 'api' }], assertions: ['result_visible'], coverage: { evidence_refs: ['e-1'], risk_types: ['valid'] } }] }, { evidenceIds: ['e-1'] });
+  assert.equal(quality.status, 'blocked');
+  assert.ok(quality.issues.some((issue) => issue.code === 'required_risk_uncovered' && issue.risk_type === 'nearby_semantic'));
 });
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));

@@ -71,6 +71,9 @@ does not call a model API. The plan protocol describes the operation, target,
 executable steps, observations, assertions, cleanup, evidence references, and risk
 coverage. Draft plans may be incomplete and receive a deterministic quality report;
 approval and scaffold reject plans with blocking gaps.
+Source analysis also emits coverage requirements and candidate contracts preserve required risk
+types, allowing plan quality checks to detect a structurally valid plan that omits risks implied
+by the authorized source evidence.
 
 ## Safety Model
 

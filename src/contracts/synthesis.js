@@ -29,6 +29,7 @@ export async function synthesizeContracts({ analysisPath, outputPath } = {}) {
       confidence: candidate.confidence ?? 0,
       conflicts: candidate.conflicts || [],
       metadata_conflicts: candidate.metadata_conflicts || [],
+      required_risks: candidate.required_risks || [],
       conflict_review: candidate.conflicts?.length ? { status: 'review_required', category: 'semantic_boundary_ambiguous', conflict_count: candidate.conflicts.length } : { status: 'clear' },
       semantic_review: candidate.conflicts?.length ? 'conflict_review_required' : 'candidate_review_required',
       review_required: true,

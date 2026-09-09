@@ -12,6 +12,7 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
   const referencedContracts = new Set();
   const coveredEvidence = new Set();
   const coveredRisks = new Set();
+  const requiredRisks = new Set();
   const operations = new Set();
   const entities = new Set();
 
@@ -24,6 +25,7 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
     assessScenario(scenario, issues, evidence, contractIds);
   }
   for (const contract of contracts) {
+    for (const risk of contract?.required_risks || []) requiredRisks.add(risk);
     for (const ref of contract?.evidence_refs || []) if (!evidence.size || evidence.has(ref)) coveredEvidence.add(ref);
     if (contract?.id && !referencedContracts.has(contract.id)) issues.push({ code: 'contract_unreferenced', severity: 'blocking', contract_id: contract.id, message: `契约未被任何测试场景引用: ${contract.id}` });
   }
@@ -34,6 +36,7 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
   }
   for (const ref of coveredEvidence) if (evidence.size && !evidence.has(ref)) issues.push({ code: 'evidence_reference_missing', severity: 'blocking', evidence_ref: ref, message: `计划引用了不存在的证据: ${ref}` });
   for (const risk of coveredRisks) if (!RISK_TYPES.has(risk)) issues.push({ code: 'risk_type_invalid', severity: 'blocking', risk_type: risk, message: `未知风险类型: ${risk}` });
+  for (const risk of requiredRisks) if (!coveredRisks.has(risk)) issues.push({ code: 'required_risk_uncovered', severity: 'blocking', risk_type: risk, message: `源码证据要求覆盖但计划未覆盖风险类型: ${risk}` });
 
   const blocking = issues.some((issue) => issue.severity === 'blocking');
   const score = Math.max(0, Math.round(100 - issues.reduce((total, issue) => total + (issue.severity === 'blocking' ? 20 : 8), 0)));
@@ -47,7 +50,7 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
       evidence: { declared: [...evidence], covered: [...coveredEvidence], missing: [...evidence].filter((id) => !coveredEvidence.has(id)) },
       operations: [...operations],
       entities: [...entities],
-      risks: { covered: [...coveredRisks], missing: [...RISK_TYPES].filter((risk) => !coveredRisks.has(risk)) },
+      risks: { required: [...requiredRisks], covered: [...coveredRisks], missing: [...requiredRisks].filter((risk) => !coveredRisks.has(risk)), optional_missing: [...RISK_TYPES].filter((risk) => !coveredRisks.has(risk) && !requiredRisks.has(risk)) },
     },
   };
 }

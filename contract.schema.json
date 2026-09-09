@@ -11,6 +11,7 @@
     "description": { "type": "string" },
     "evidence_summary": { "type": "array", "items": { "$ref": "#/$defs/evidenceSummary" } },
     "metadata_conflicts": { "type": "array", "items": { "$ref": "#/$defs/metadataConflict" } },
+    "required_risks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
     "conflict_review": { "$ref": "#/$defs/reviewState" },
     "semantic_review": { "type": "string" },
