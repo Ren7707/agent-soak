@@ -248,7 +248,10 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 不能审批，也不能生成适配器骨架。规则冲突可以通过计划的 `review.reasons` 记录处理
 意见，或在明确使用 `--allow-ambiguous` 时由审核人承担决策责任。
 
-源码分析结果还会输出 `coverage_requirements`，并在候选契约中保留
+源码分析结果还会输出 `operations` 和 `coverage_requirements`。`operations` 会保留
+源码中可复核的 API 路由、HTTP 方法、业务操作和实体线索，供外部大模型把字段契约
+编排成创建、查询、更新和删除等真实场景；它不会直接生成平台专用 Adapter。
+候选契约中还会保留
 `required_risks`。这些风险是根据源码中的字段语义、枚举、必填状态、规则冲突和可观测
 值推导出的最低覆盖要求，不是模型可以随意忽略的建议。计划的 `coverage.risk_types`
 必须覆盖这些要求，否则质量状态为 `blocked`，不能审批或生成 Adapter。

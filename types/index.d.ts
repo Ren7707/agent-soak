@@ -37,6 +37,9 @@ export type SemanticSampleKind = 'valid' | 'boundary' | 'nearby_semantic' | 'wro
 export interface SemanticField {
   path: string;
   semantic_type?: string;
+  entity?: string;
+  operations?: string[];
+  routes?: string[];
   examples?: unknown[];
   negative_examples?: unknown[];
   required?: boolean;
@@ -122,6 +125,7 @@ export interface SourceAnalysisResult {
   files: string[];
   evidence: Array<Record<string, unknown>>;
   candidates: Array<Record<string, unknown>>;
+  operations?: Array<{ id?: string; source?: string; file?: string; line?: number; method?: string; route?: string; operation?: string; entity?: string; description?: string; confidence?: number }>;
   output?: string;
 }
 

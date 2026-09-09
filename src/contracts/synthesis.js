@@ -16,6 +16,9 @@ export async function synthesizeContracts({ analysisPath, outputPath } = {}) {
       id: `${candidate.field}-candidate`,
       field: candidate.field,
       semantic_type: candidate.semantic_type,
+      ...(candidate.entity ? { entity: candidate.entity } : {}),
+      ...(candidate.operations?.length ? { operations: candidate.operations } : {}),
+      ...(candidate.routes?.length ? { routes: candidate.routes } : {}),
       ...(candidate.description ? { description: candidate.description } : {}),
       ...(candidate.evidence_summary ? { evidence_summary: candidate.evidence_summary } : {}),
       fields: [{

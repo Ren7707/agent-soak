@@ -24,7 +24,8 @@ export async function analyzeSource({ root, maxFiles = 500, maxBytes = 512 * 102
     evidence.push(...extractEvidence(absoluteRoot, file, await fs.readFile(file, 'utf8'), fileIndex));
   }
   const candidates = mergeCandidates(evidence);
-  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(candidates), coverage_requirements: redact(candidates.map(({ field, semantic_type, evidence_refs, required_risks }) => ({ field, semantic_type, evidence_refs, required_risks }))) };
+  const operations = evidence.filter((item) => item.kind === 'operation').map(({ id, source, file, line, method, route, operation, entity, description, confidence }) => ({ id, source, file, line, method, route, operation, ...(entity ? { entity } : {}), ...(description ? { description } : {}), confidence }));
+  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(candidates), operations: redact(operations), coverage_requirements: redact(candidates.map(({ field, semantic_type, evidence_refs, required_risks }) => ({ field, semantic_type, evidence_refs, required_risks }))) };
   if (outputPath) {
     const target = path.resolve(outputPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -51,6 +52,7 @@ function extractEvidence(root, file, content, fileIndex) {
   const source = classifySource(relative, content);
   const result = [];
   if (source === 'openapi') result.push(...extractStructuredEvidence(relative, content, lines, fileIndex));
+  result.push(...extractOperationEvidence(relative, content, lines, fileIndex, source));
   lines.forEach((line, index) => {
     let occurrence = 0;
     for (const match of line.matchAll(/\b(platform|os|email|username|status|version|amount|quantity|timezone)(?:Options|Values|Types|Names|Schema|Validator)?\b/gi)) {
@@ -63,6 +65,38 @@ function extractEvidence(root, file, content, fileIndex) {
   return result;
 }
 
+function extractOperationEvidence(relative, content, lines, fileIndex, source) {
+  const result = [];
+  const routePattern = /\b(?:app|router|server)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`\s]+)['"`]/gi;
+  const fetchPattern = /\bfetch\s*\(\s*['"`]([^'"`\s]+)['"`][\s\S]{0,180}?\bmethod\s*:\s*['"`](GET|POST|PUT|PATCH|DELETE)['"`]/gi;
+  for (const match of content.matchAll(routePattern)) result.push(operationEvidence(relative, lines, fileIndex, source, match[1], match[2], match.index, result.length));
+  for (const match of content.matchAll(fetchPattern)) result.push(operationEvidence(relative, lines, fileIndex, 'runtime', match[2], match[1], match.index, result.length));
+  return result;
+}
+
+function operationEvidence(relative, lines, fileIndex, source, method, route, offset, occurrence) {
+  const line = contentLine(lines, offset);
+  return { id: `evidence-${fileIndex + 1}-${line}-op-${occurrence + 1}`, source, kind: 'operation', file: relative, line, method: method.toUpperCase(), route: route.replace(/[?#].*$/, ''), operation: operationForMethod(method), entity: entityForRoute(route), snippet: snippetNear(lines, line - 1), confidence: 0.86 };
+}
+
+function contentLine(lines, offset) {
+  let remaining = String(offset ?? 0);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (remaining <= lines[index].length) return index + 1;
+    remaining -= lines[index].length + 1;
+  }
+  return 1;
+}
+
+function operationForMethod(method) {
+  return { GET: 'read', POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }[String(method).toUpperCase()] || 'custom';
+}
+
+function entityForRoute(route) {
+  const segment = String(route).split('/').filter((item) => item && !item.startsWith(':') && !/^v\\d+$/i.test(item)).pop();
+  return segment ? segment.replace(/s$/, '') : undefined;
+}
+
 function extractStructuredEvidence(relative, content, lines, fileIndex) {
   const document = parseStructuredDocument(relative, content);
   if (!document || typeof document !== 'object') return [];
@@ -70,7 +104,20 @@ function extractStructuredEvidence(relative, content, lines, fileIndex) {
   const lineCursor = { value: 0 };
   const kind = document.openapi || document.swagger ? 'openapi' : 'json_schema';
   walkStructuredSchema(document, [], result, relative, lines, fileIndex, lineCursor, kind);
+  if (kind === 'openapi') extractOpenApiOperations(document, relative, lines, fileIndex, result);
   return result;
+}
+
+function extractOpenApiOperations(document, relative, lines, fileIndex, result) {
+  if (!document.paths || typeof document.paths !== 'object') return;
+  for (const [route, definition] of Object.entries(document.paths)) {
+    if (!definition || typeof definition !== 'object') continue;
+    for (const [method, operation] of Object.entries(definition)) {
+      if (!['get', 'post', 'put', 'patch', 'delete'].includes(method.toLowerCase())) continue;
+      const line = findStructuredFieldLine(lines, route, { value: 0 });
+      result.push({ id: `evidence-${fileIndex + 1}-${line}-op-${result.length + 1}`, source: 'openapi', kind: 'operation', schema_kind: 'openapi', file: relative, line, method: method.toUpperCase(), route: String(route).replace(/[?#].*$/, ''), operation: operationForMethod(method), entity: entityForRoute(route), ...(typeof operation?.summary === 'string' ? { description: operation.summary.slice(0, 240) } : {}), confidence: 0.98 });
+    }
+  }
 }
 
 function parseStructuredDocument(relative, content) {
@@ -166,19 +213,24 @@ function semanticTypeForField(field) {
 function mergeCandidates(evidence) {
   const groups = new Map();
   for (const item of evidence) {
-    const candidate = groups.get(item.field) || { field: item.field, semantic_type: item.semantic_type, examples: [], evidence_refs: [], observed_value_sets: [], observed_value_set_refs: [], metadata: [], confidence: 0 };
-    candidate.examples.push(...item.values.filter((value) => !candidate.examples.includes(value)));
-    if (item.values.length) {
-      const setIndex = candidate.observed_value_sets.findIndex((values) => sameValues(values, item.values));
+    if (!item.field) continue;
+    const groupKey = item.field || `operation:${item.entity || 'unknown'}`;
+    const candidate = groups.get(groupKey) || { field: item.field, semantic_type: item.semantic_type, entity: item.entity, operations: [], routes: [], examples: [], evidence_refs: [], observed_value_sets: [], observed_value_set_refs: [], metadata: [], confidence: 0 };
+    if (item.operation && !candidate.operations.includes(item.operation)) candidate.operations.push(item.operation);
+    if (item.route && !candidate.routes.includes(item.route)) candidate.routes.push(item.route);
+    const itemValues = Array.isArray(item.values) ? item.values : [];
+    candidate.examples.push(...itemValues.filter((value) => !candidate.examples.includes(value)));
+    if (itemValues.length) {
+      const setIndex = candidate.observed_value_sets.findIndex((existingValues) => sameValues(existingValues, itemValues));
       if (setIndex === -1) {
-        candidate.observed_value_sets.push(item.values);
+        candidate.observed_value_sets.push(itemValues);
         candidate.observed_value_set_refs.push([item.id]);
       } else {
         candidate.observed_value_set_refs[setIndex].push(item.id);
       }
     }
     candidate.evidence_refs.push(item.id);
-    candidate.metadata.push({ evidence_ref: item.id, source: item.source, file: item.file, line: item.line, ...(item.schema_kind ? { schema_kind: item.schema_kind } : {}), ...(item.schema_path ? { schema_path: item.schema_path } : {}), ...(item.required !== undefined ? { required: item.required } : {}), ...(item.description ? { description: item.description } : {}) });
+    candidate.metadata.push({ evidence_ref: item.id, source: item.source, file: item.file, line: item.line, ...(item.kind ? { kind: item.kind } : {}), ...(item.schema_kind ? { schema_kind: item.schema_kind } : {}), ...(item.schema_path ? { schema_path: item.schema_path } : {}), ...(item.required !== undefined ? { required: item.required } : {}), ...(item.description ? { description: item.description } : {}) });
     candidate.confidence = Math.max(candidate.confidence, item.confidence);
     groups.set(item.field, candidate);
   }

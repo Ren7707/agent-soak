@@ -159,6 +159,32 @@ test('source analysis derives required risk coverage from field evidence', async
   }
 });
 
+test('source analysis extracts API operation evidence without creating empty field candidates', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-operations-'));
+  try {
+    await fs.writeFile(path.join(dir, 'routes.js'), "router.post('/devices', createDevice);\nrouter.get('/devices/:id', getDevice);\nfetch('/devices', { method: 'POST', body: JSON.stringify(input) });\nconst platformOptions = ['Windows', 'Linux'];\n");
+    const result = await analyzeSource({ root: dir });
+    assert.equal(result.operations.filter((item) => item.route === '/devices').length >= 2, true);
+    assert.ok(result.operations.some((item) => item.route === '/devices' && item.operation === 'create' && item.entity === 'device'));
+    assert.ok(result.operations.some((item) => item.route === '/devices/:id' && item.operation === 'read' && item.entity === 'device'));
+    assert.equal(result.candidates.some((item) => !item.field), false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('source analysis extracts OpenAPI path operations', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-openapi-operations-'));
+  try {
+    await fs.writeFile(path.join(dir, 'openapi.json'), JSON.stringify({ openapi: '3.0.3', paths: { '/devices': { post: { summary: 'Create device' }, get: { summary: 'List devices' } } } }, null, 2));
+    const result = await analyzeSource({ root: dir });
+    assert.ok(result.operations.some((item) => item.route === '/devices' && item.method === 'POST' && item.operation === 'create'));
+    assert.ok(result.operations.some((item) => item.route === '/devices' && item.method === 'GET' && item.operation === 'read'));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('source analysis redacts private source details and avoids absolute root paths', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-privacy-'));
   try {
