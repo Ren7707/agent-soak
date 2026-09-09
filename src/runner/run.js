@@ -203,5 +203,18 @@ function scheduleTarget(args) {
 function modeFrom(args) { const mode = String(args.mode || 'readonly'); if (mode !== 'readonly' && mode !== 'write') throw new Error(`mode_invalid: ${mode}`); return mode; }
 function assertWriteAllowed(manifest, args, env) { if (manifest.platform.production === true) throw new Error('write_rejected_production_target'); if (args.allowWrites !== true || env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`); }
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
-function runResult({ ok, status, runId, mode, manifest, baseUrl, ...rest }) { return { result_schema_version: RESULT_SCHEMA_VERSION, ok, command: 'run', status, runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', environment: environmentSummary(manifest, mode, baseUrl), ...rest }; }
+function runResult({ ok, status, runId, mode, manifest, baseUrl, ...rest }) { return { result_schema_version: RESULT_SCHEMA_VERSION, ok, command: 'run', status, runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', environment: environmentSummary(manifest, mode, baseUrl), diagnostics: diagnosticsFor(rest.scenarios, status), ...rest }; }
 function environmentSummary(manifest, mode, baseUrl) { return { node: process.version, platform: process.platform, arch: process.arch, mode, platform_id: manifest.platform.id, base_url_configured: Boolean(baseUrl) }; }
+function diagnosticsFor(scenarios = [], status) {
+  const counts = { passed: 0, failed: 0, skipped: 0 };
+  const categories = {};
+  const failures = [];
+  for (const scenario of scenarios) {
+    const outcome = scenario.ok === false ? 'failed' : scenario.status === 'skipped' ? 'skipped' : 'passed';
+    counts[outcome] += 1;
+    const category = scenario.category || scenario.contract?.category;
+    if (category) categories[category] = (categories[category] || 0) + 1;
+    if (outcome === 'failed') failures.push({ scenario_id: scenario.id, case_id: scenario.case_id, category, observation_refs: scenario.observation_refs || [], repro: scenario.repro?.file });
+  }
+  return { status, counts, categories, failures };
+}

@@ -195,6 +195,7 @@ export interface RunResult {
   mode: 'readonly' | 'write';
   ruleset_version: string;
   environment: RunEnvironment;
+  diagnostics: RunDiagnostics;
   rounds: number;
   cancelled: boolean;
   scenarios: ScenarioResult[];
@@ -202,6 +203,13 @@ export interface RunResult {
   preflight: Record<string, unknown>;
   cleanup: Record<string, unknown>;
   observations: Record<string, unknown>;
+}
+
+export interface RunDiagnostics {
+  status: string;
+  counts: { passed: number; failed: number; skipped: number };
+  categories: Record<string, number>;
+  failures: Array<{ scenario_id: string; case_id?: string; category?: string; observation_refs: string[]; repro?: string }>;
 }
 
 export interface RuntimeObserver {

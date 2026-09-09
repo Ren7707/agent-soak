@@ -357,6 +357,10 @@ test('CLI reports a semantic contract bug when a nearby value is accepted', asyn
     assert.equal(result.code, 4);
     assert.equal(body.scenarios[0].status, 'confirmed_bug');
     assert.equal(body.scenarios[0].contract.category, 'semantic_constraint_missing');
+    assert.equal(body.diagnostics.counts.failed, 1);
+    assert.equal(body.diagnostics.categories.semantic_constraint_missing, 1);
+    assert.equal(body.diagnostics.failures[0].case_id, body.scenarios[0].case_id);
+    assert.ok(body.diagnostics.failures[0].repro);
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
