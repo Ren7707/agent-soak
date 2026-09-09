@@ -15,6 +15,7 @@
     "review_required": { "type": "boolean" },
     "approved": { "type": "boolean" },
     "requires_write_approval": { "type": "boolean" },
+    "quality": { "$ref": "#/$defs/quality" },
     "approval": { "$ref": "#/$defs/approval" },
     "contracts": { "type": "array", "items": { "$ref": "contract.schema.json" } },
     "scenarios": {
@@ -31,7 +32,15 @@
           "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
           "suite": { "type": "string", "minLength": 1 },
           "tags": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "priority": { "enum": ["low", "medium", "high", "critical"] }
+          "priority": { "enum": ["low", "medium", "high", "critical"] },
+          "operation": { "type": "string", "minLength": 1 },
+          "target": { "type": "string", "minLength": 1 },
+          "preconditions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+          "assertions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "creates_resources": { "type": "boolean" },
+          "coverage": { "$ref": "#/$defs/coverage" },
+          "review": { "$ref": "#/$defs/review" }
         }
       }
     },
@@ -48,6 +57,49 @@
         "conflict_categories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "plan_fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "conflict_report_fingerprint": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "transport": { "enum": ["api", "browser", "cli", "adapter", "observation"] },
+        "input_ref": { "type": "string", "minLength": 1 },
+        "observation": { "type": "string", "minLength": 1 },
+        "action_ref": { "type": "string", "minLength": 1 },
+        "writes": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "risk_types": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "boolean" },
+        "reasons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "score", "blocking", "issues", "coverage"],
+      "properties": {
+        "status": { "enum": ["pass", "review_required", "blocked"] },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "blocking": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "object" } },
+        "coverage": { "type": "object" }
       }
     }
   }

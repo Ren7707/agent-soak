@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { validateModelPlan } from './model.js';
 import { planFingerprint } from './fingerprint.js';
+import { assertPlanQuality } from './quality.js';
 
 export async function approveModelPlanFile({ inputPath, outputPath, conflictPath, reviewer, reason, now = new Date().toISOString(), allowAmbiguous = false } = {}) {
   if (!inputPath) throw new Error('approval_input_required');
@@ -30,6 +31,7 @@ export async function approveModelPlanFile({ inputPath, outputPath, conflictPath
   if (contractConflicts.length && findings.length && !conflictFields.every((field) => findings.some((finding) => finding.field === field))) throw new Error('approval_conflict_field_unmatched');
   const requiredCategories = expectedConflictCategories(plan.contracts);
   if (requiredCategories.some((category) => !findings.some((finding) => finding.category === category))) throw new Error('approval_conflict_category_unmatched');
+  const quality = assertPlanQuality(plan, { conflictFindings: findings, allowAmbiguous });
   const approved = {
     ...plan,
     status: 'approved',
@@ -37,6 +39,7 @@ export async function approveModelPlanFile({ inputPath, outputPath, conflictPath
     approved: true,
     approval: { reviewer, reason: reason.trim(), approved_at: now, conflict_override: allowAmbiguous && findings.length > 0, conflict_fields: conflictFields, conflict_categories: [...new Set(findings.map((finding) => finding.category).filter(Boolean))], plan_fingerprint: planFingerprint(plan), conflict_report_fingerprint: conflictRaw ? fingerprint(conflictRaw) : null },
     contracts: plan.contracts.map((contract) => ({ ...contract, status: 'approved', review_required: false, approved: true })),
+    quality,
   };
   await fs.mkdir(path.dirname(output), { recursive: true });
   await fs.writeFile(output, `${JSON.stringify(approved, null, 2)}\n`, 'utf8');

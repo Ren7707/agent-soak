@@ -133,6 +133,25 @@ export interface ModelPlanScenario {
   suite?: string;
   tags?: string[];
   priority?: 'low' | 'medium' | 'high' | 'critical';
+  operation?: 'create' | 'read' | 'update' | 'delete' | 'transition' | 'search' | 'authenticate' | 'custom';
+  target?: string;
+  preconditions?: string[];
+  steps?: PlanStep[];
+  assertions?: string[];
+  creates_resources?: boolean;
+  coverage?: { evidence_refs?: string[]; risk_types?: SemanticSampleKind[] };
+  review?: { required?: boolean; reasons?: string[] };
+}
+
+export interface PlanStep {
+  id?: string;
+  action: 'submit' | 'observe' | 'assert' | 'cleanup' | 'navigate' | 'authenticate' | 'query' | 'update' | 'delete' | 'custom';
+  transport?: 'api' | 'browser' | 'cli' | 'adapter' | 'observation';
+  input_ref?: string;
+  observation?: string;
+  action_ref?: string;
+  writes?: boolean;
+  description?: string;
 }
 
 export interface ModelTestPlan {
@@ -141,8 +160,17 @@ export interface ModelTestPlan {
   review_required?: boolean;
   approved?: boolean;
   requires_write_approval?: boolean;
+  quality?: PlanQuality;
   contracts: ScenarioContract[];
   scenarios: ModelPlanScenario[];
+}
+
+export interface PlanQuality {
+  status: 'pass' | 'review_required' | 'blocked';
+  score: number;
+  blocking: boolean;
+  issues: Array<Record<string, unknown>>;
+  coverage: Record<string, unknown>;
 }
 
 export interface ReplayPackage {

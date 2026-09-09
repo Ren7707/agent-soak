@@ -1,6 +1,7 @@
 import { validateContract } from '../contracts/validation.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { assessPlanQuality } from './quality.js';
 
 const PLAN_VERSION = 1;
 const MODES = new Set(['readonly', 'write']);
@@ -28,6 +29,7 @@ export function validateModelPlan(plan, { evidenceIds = [] } = {}) {
     if (scenario.suite !== undefined && (typeof scenario.suite !== 'string' || !scenario.suite)) throw new Error('model_plan_scenario_suite_invalid');
     if (scenario.tags !== undefined && (!Array.isArray(scenario.tags) || scenario.tags.some((item) => typeof item !== 'string' || !item))) throw new Error('model_plan_scenario_tags_invalid');
     if (scenario.priority !== undefined && !['low', 'medium', 'high', 'critical'].includes(scenario.priority)) throw new Error('model_plan_scenario_priority_invalid');
+    validateScenarioPlanFields(scenario);
     validateEvidenceRefs(scenario.evidence_refs, knownEvidence);
   }
   const contractIds = new Set(plan.contracts.map((contract) => contract.id).filter(Boolean));
@@ -45,6 +47,7 @@ function validateApproval(approval) {
 
 export function normalizeModelPlan(plan, options) {
   validateModelPlan(plan, options);
+  const quality = assessPlanQuality(plan, { evidenceIds: options?.evidenceIds || [] });
   return {
     ...plan,
     status: 'draft',
@@ -53,6 +56,7 @@ export function normalizeModelPlan(plan, options) {
     requires_write_approval: plan.requires_write_approval === true,
     contracts: plan.contracts.map((contract) => ({ ...contract, status: 'draft', review_required: true, approved: false })),
     scenarios: plan.scenarios.map((scenario) => ({ ...scenario, mode: scenario.mode || 'readonly' })),
+    quality,
   };
 }
 
@@ -74,4 +78,23 @@ function validateEvidenceRefs(refs, knownEvidence) {
   if (refs === undefined) return;
   if (!Array.isArray(refs) || refs.some((ref) => typeof ref !== 'string' || !ref)) throw new Error('model_plan_evidence_refs_invalid');
   if (knownEvidence.size && refs.some((ref) => !knownEvidence.has(ref))) throw new Error('model_plan_evidence_reference_missing');
+}
+
+function validateScenarioPlanFields(scenario) {
+  if (scenario.operation !== undefined && (typeof scenario.operation !== 'string' || !scenario.operation)) throw new Error('model_plan_scenario_operation_invalid');
+  if (scenario.target !== undefined && (typeof scenario.target !== 'string' || !scenario.target)) throw new Error('model_plan_scenario_target_invalid');
+  if (scenario.preconditions !== undefined && (!Array.isArray(scenario.preconditions) || scenario.preconditions.some((item) => typeof item !== 'string' || !item))) throw new Error('model_plan_scenario_preconditions_invalid');
+  if (scenario.steps !== undefined && (!Array.isArray(scenario.steps) || scenario.steps.some((step) => !step || typeof step !== 'object' || typeof step.action !== 'string'))) throw new Error('model_plan_scenario_steps_invalid');
+  if (scenario.assertions !== undefined && (!Array.isArray(scenario.assertions) || scenario.assertions.some((item) => typeof item !== 'string' || !item))) throw new Error('model_plan_scenario_assertions_invalid');
+  if (scenario.creates_resources !== undefined && typeof scenario.creates_resources !== 'boolean') throw new Error('model_plan_scenario_creates_resources_invalid');
+  if (scenario.coverage !== undefined) {
+    if (!scenario.coverage || typeof scenario.coverage !== 'object' || Array.isArray(scenario.coverage)) throw new Error('model_plan_scenario_coverage_invalid');
+    validateEvidenceRefs(scenario.coverage.evidence_refs, new Set());
+    if (scenario.coverage.risk_types !== undefined && (!Array.isArray(scenario.coverage.risk_types) || scenario.coverage.risk_types.some((item) => typeof item !== 'string' || !item))) throw new Error('model_plan_scenario_risk_types_invalid');
+  }
+  if (scenario.review !== undefined) {
+    if (!scenario.review || typeof scenario.review !== 'object' || Array.isArray(scenario.review)) throw new Error('model_plan_scenario_review_invalid');
+    if (scenario.review.required !== undefined && typeof scenario.review.required !== 'boolean') throw new Error('model_plan_scenario_review_required_invalid');
+    if (scenario.review.reasons !== undefined && (!Array.isArray(scenario.review.reasons) || scenario.review.reasons.some((item) => typeof item !== 'string' || !item))) throw new Error('model_plan_scenario_review_reasons_invalid');
+  }
 }

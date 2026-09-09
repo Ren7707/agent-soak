@@ -85,7 +85,8 @@ function readmeTemplate(id, envPrefix) {
   return `# ${id} adapter
 
 1. Copy \`.env.example\` values into your environment.
-2. Keep authentication, routes, selectors, and resource cleanup in \`adapter.js\`.
+2. Define every scenario's operation, target, steps, assertions, evidence coverage, and cleanup before implementing platform details.
+3. Keep authentication, routes, selectors, and resource cleanup in \`adapter.js\`.
 3. Validate with:
 
 \`\`\`powershell

@@ -8,6 +8,7 @@ import { resolveRunProvenance } from '../src/provenance.js';
 import { initAdapter } from '../src/adapters/init.js';
 import { ResourceRegistry } from '../src/resources/registry.js';
 import { parseDuration, runSchedule } from '../src/core/scheduler.js';
+import { assessPlanQuality } from '../src/plans/quality.js';
 import { redact } from '../src/core/redact.js';
 import { evaluateContract, evaluateInvariants, generateContractCases, generateRiskCases, getRiskProfile, synthesizeContracts, validateContract } from '../src/contracts/index.js';
 import { analyzeSource, inspectRuleConflicts } from '../src/knowledge/index.js';
@@ -307,6 +308,15 @@ test('model plans validate evidence and contract references', () => {
   assert.doesNotThrow(() => validateModelPlan({ ...plan, status: 'approved', review_required: false, approved: true, approval: { reviewer: 'owner', reason: '已完成审核', approved_at: '2026-09-09T00:00:00.000Z', conflict_override: false, conflict_fields: [], conflict_categories: [] } }, { evidenceIds: ['e-1'] }));
   assert.throws(() => validateModelPlan({ ...plan, scenarios: [{ id: 'broken', priority: 'urgent' }] }, { evidenceIds: ['e-1'] }), /model_plan_scenario_priority_invalid/);
   assert.throws(() => validateModelPlan({ ...plan, approval: { reviewer: 'owner' } }, { evidenceIds: ['e-1'] }), /model_plan_approval_reason_invalid/);
+});
+
+test('plan quality reports missing execution coverage and accepts a complete scenario', () => {
+  const incomplete = assessPlanQuality({ version: 1, contracts: [{ id: 'device' }], scenarios: [{ id: 'register', mode: 'write', contract_id: 'device', evidence_refs: ['e-1'] }] }, { evidenceIds: ['e-1'] });
+  assert.equal(incomplete.status, 'blocked');
+  assert.ok(incomplete.issues.some((issue) => issue.code === 'steps_missing'));
+  const complete = assessPlanQuality({ version: 1, contracts: [{ id: 'device' }], scenarios: [{ id: 'register', mode: 'write', operation: 'create', target: 'device', contract_id: 'device', evidence_refs: ['e-1'], steps: [{ action: 'submit', transport: 'api' }, { action: 'observe', transport: 'observation' }, { action: 'cleanup', transport: 'adapter' }], assertions: ['resource_created_matches_contract'], coverage: { evidence_refs: ['e-1'], risk_types: ['nearby_semantic'] } }] }, { evidenceIds: ['e-1'] });
+  assert.equal(complete.status, 'pass');
+  assert.equal(complete.blocking, false);
 });
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));

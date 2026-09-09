@@ -12,6 +12,7 @@ import { planFingerprint } from '../src/plans/fingerprint.js';
 
 const root = new URL('..', import.meta.url);
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+const completeWriteScenario = (id = 'register-device', contract_id = 'device') => ({ id, mode: 'write', operation: 'create', target: 'device', contract_id, evidence_refs: ['e-1'], steps: [{ action: 'submit', transport: 'api' }, { action: 'observe', transport: 'observation', observation: 'resource_detail' }, { action: 'cleanup', transport: 'adapter', action_ref: 'delete_created_resource' }], assertions: ['accepted_matches_contract', 'resource_created_matches_contract', 'cleanup_completed'], coverage: { evidence_refs: ['e-1'], risk_types: ['nearby_semantic', 'wrong_type', 'missing'] } });
 test('CLI inspect returns machine-readable manifest', async () => {
   const child = spawn(process.execPath, ['src/cli.js', 'inspect', '--json'], { cwd: root, env: { ...process.env, DEMO_PLATFORM_BASE_URL: 'http://127.0.0.1:4317' } });
   let output = ''; child.stdout.on('data', (chunk) => { output += chunk; }); await once(child, 'close');
@@ -78,7 +79,7 @@ test('CLI approve records an auditable plan decision and blocks unresolved confl
     const inputPath = path.join(cwd, 'draft.json');
     const conflictPath = path.join(cwd, 'conflicts.json');
     const outputPath = path.join(cwd, 'approved.json');
-    const draft = { version: 1, status: 'draft', review_required: true, approved: false, contracts: [{ id: 'device', field: 'platform', status: 'draft', review_required: true, approved: false }], scenarios: [{ id: 'register-device', contract_id: 'device' }] };
+    const draft = { version: 1, status: 'draft', review_required: true, approved: false, contracts: [{ id: 'device', field: 'platform', status: 'draft', review_required: true, approved: false }], scenarios: [completeWriteScenario()] };
     await fs.writeFile(inputPath, JSON.stringify(draft));
     await fs.writeFile(conflictPath, JSON.stringify({ findings: [{ status: 'review_required', category: 'semantic_boundary_ambiguous' }] }));
     const blocked = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--conflicts', conflictPath, '--reviewer', 'owner', '--reason', '需要确认平台字段是否允许自定义系统名称', '--json'], { cwd });
@@ -104,7 +105,7 @@ test('CLI approve binds embedded contract conflicts to reviewed findings', async
   try {
     const inputPath = path.join(cwd, 'draft.json');
     const outputPath = path.join(cwd, 'approved.json');
-    const draft = { version: 1, status: 'draft', review_required: true, approved: false, contracts: [{ id: 'device', field: 'platform', conflicts: [{ kind: 'required_status' }], metadata_conflicts: [{ kind: 'required_status', observations: [] }], status: 'draft', review_required: true, approved: false }], scenarios: [{ id: 'register-device', contract_id: 'device' }] };
+    const draft = { version: 1, status: 'draft', review_required: true, approved: false, contracts: [{ id: 'device', field: 'platform', conflicts: [{ kind: 'required_status' }], metadata_conflicts: [{ kind: 'required_status', observations: [] }], status: 'draft', review_required: true, approved: false }], scenarios: [completeWriteScenario()] };
     await fs.writeFile(inputPath, JSON.stringify(draft));
     const missing = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--reviewer', 'owner', '--reason', '已完成字段规则审核并记录依据', '--allow-ambiguous', '--json'], { cwd });
     assert.equal(missing.code, 2);
@@ -133,7 +134,7 @@ test('CLI plan normalizes a model plan and checks evidence references', async ()
     const inputPath = path.join(cwd, 'model-plan.json');
     const evidencePath = path.join(cwd, 'analysis.json');
     const outputPath = path.join(cwd, 'draft-plan.json');
-    await fs.writeFile(inputPath, JSON.stringify({ version: 1, approved: true, contracts: [{ id: 'device', field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['e-1'] }], scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device', evidence_refs: ['e-1'] }] }));
+    await fs.writeFile(inputPath, JSON.stringify({ version: 1, approved: true, contracts: [{ id: 'device', field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['e-1'] }], scenarios: [completeWriteScenario()] }));
     await fs.writeFile(evidencePath, JSON.stringify({ evidence: [{ id: 'e-1' }] }));
     const result = await runCli(['plan', '--input', inputPath, '--evidence', evidencePath, '--output', outputPath, '--json'], { cwd: path.dirname(cwd) });
     const body = JSON.parse(result.stdout);
@@ -149,6 +150,23 @@ test('CLI plan normalizes a model plan and checks evidence references', async ()
   }
 });
 
+test('CLI plan reports actionable quality gaps while keeping drafts editable', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-plan-quality-'));
+  try {
+    const inputPath = path.join(cwd, 'model-plan.json');
+    const outputPath = path.join(cwd, 'draft-plan.json');
+    await fs.writeFile(inputPath, JSON.stringify({ version: 1, contracts: [{ id: 'device', field: 'platform', evidence_refs: ['e-1'] }], scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device', evidence_refs: ['e-1'] }] }));
+    const result = await runCli(['plan', '--input', inputPath, '--output', outputPath, '--json'], { cwd });
+    const body = JSON.parse(result.stdout);
+    assert.equal(result.code, 0);
+    assert.equal(body.quality.status, 'blocked');
+    assert.ok(body.quality.issues.some((issue) => issue.code === 'steps_missing'));
+    assert.equal(JSON.parse(await fs.readFile(outputPath, 'utf8')).approved, false);
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI scaffold generates a safe skeleton only from an approved plan', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-scaffold-'));
   try {
@@ -157,7 +175,7 @@ test('CLI scaffold generates a safe skeleton only from an approved plan', async 
     const plan = {
       version: 1, status: 'approved', review_required: false, approved: true,
       contracts: [{ id: 'device', field: 'platform', semantic_type: 'operating_system_platform', description: '企业系统 https://private.example.test', evidence_refs: ['e-1'], policy: { api_key: 'secret-token' }, cases: [{ input: { email: 'owner@example.com' } }] , status: 'approved', review_required: false, approved: true }],
-      scenarios: [{ id: 'register-device', mode: 'write', contract_id: 'device' }],
+      scenarios: [completeWriteScenario()],
     };
     plan.approval = { reviewer: 'owner', reason: '已完成测试计划审核', approved_at: '2026-09-09T00:00:00.000Z', conflict_override: false, conflict_fields: [], conflict_categories: [], plan_fingerprint: '' , conflict_report_fingerprint: null };
     plan.approval.plan_fingerprint = planFingerprint(plan);
@@ -196,7 +214,7 @@ test('CLI scaffold rejects drafts and output paths outside the workspace', async
     assert.equal(draft.code, 2);
     assert.match(JSON.parse(draft.stdout).detail_code, /scaffold_plan_not_approved/);
     const approvedPath = path.join(cwd, 'approved.json');
-    const approvedPlan = { version: 1, status: 'approved', review_required: false, approved: true, contracts: [], scenarios: [{ id: 'check' }] };
+    const approvedPlan = { version: 1, status: 'approved', review_required: false, approved: true, contracts: [], scenarios: [{ id: 'check', mode: 'readonly', operation: 'read', target: 'health', creates_resources: false, evidence_refs: ['manual'], steps: [{ action: 'query', transport: 'api' }], assertions: ['health_ok'], coverage: { evidence_refs: ['manual'], risk_types: ['valid'] } }] };
     approvedPlan.approval = { reviewer: 'owner', reason: '已完成测试计划审核', approved_at: '2026-09-09T00:00:00.000Z', conflict_override: false, conflict_fields: [], conflict_categories: [], plan_fingerprint: '', conflict_report_fingerprint: null };
     approvedPlan.approval.plan_fingerprint = planFingerprint(approvedPlan);
     await fs.writeFile(approvedPath, JSON.stringify(approvedPlan));

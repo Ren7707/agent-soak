@@ -196,7 +196,7 @@ function mergeCandidates(evidence) {
       evidence_summary: candidate.metadata,
       metadata_conflicts: metadataConflicts,
       conflicts: [...conflicts, ...metadataConflicts],
-      policy: candidate.examples.length ? { allowed_values: 'observed_or_explicit_custom' } : { allowed_values: 'unknown' },
+      ...(candidate.examples.length ? { policy: { allowed_values: 'observed_or_explicit_custom' } } : {}),
     };
   });
 }

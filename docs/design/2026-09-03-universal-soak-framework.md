@@ -65,6 +65,13 @@ cleanup events. The runner persists the stream as `observations.json` and stores
 event IDs in scenario results, so a semantic finding is reproducible without
 treating a 2xx response or completed UI action as proof of business success.
 
+External models are deliberately outside the runtime. They may read this repository
+and an authorized target source tree to produce a model test plan, but `agent-soak`
+does not call a model API. The plan protocol describes the operation, target,
+executable steps, observations, assertions, cleanup, evidence references, and risk
+coverage. Draft plans may be incomplete and receive a deterministic quality report;
+approval and scaffold reject plans with blocking gaps.
+
 ## Safety Model
 
 - Read-only is the default mode.

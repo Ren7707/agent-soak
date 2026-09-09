@@ -58,6 +58,8 @@ SHA-256，便于 CI 或 Skill 在上传、归档和复现前确认产物没有�
 - 结构化 OpenAPI / Swagger / JSON Schema 的字段级证据提取（枚举、描述、必填和 Schema 路径）
 - 候选契约的字段级证据摘要传递和元数据冲突审查
 - 带审核人、理由和时间记录的测试计划审批流程
+- 测试计划质量评分、证据覆盖和风险覆盖矩阵
+- 测试计划质量评分、证据覆盖和风险覆盖矩阵
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
 - 稳定案例 ID、失败案例最小复现包和单案例重放
@@ -233,6 +235,78 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 运行观测和模型推断之间的差异，输出 `semantic_boundary_ambiguous` 和
 `review_required`，不会静默选择某一方，也不会把冲突直接报告为确定缺陷。
 规则来源优先级只用于排序和人工审查提示，不能替代产品规则确认。
+
+`plan` 是外部大模型和框架之间的计划协议边界。大模型在框架外读取目标仓库，
+根据源码、接口和页面证据生成计划；框架不调用模型 API，只负责验证计划是否足够
+具体、可执行和可审计。每个重要场景应声明 `operation`、`target`、`steps`、
+`assertions`、`coverage` 和 `evidence_refs`。写入场景还必须包含清理步骤，除非明确
+声明 `creates_resources: false`。
+
+规范化后的计划会包含 `quality` 报告，至少包括 `status`、`score`、`issues` 和
+`coverage`。草稿计划即使质量不完整也会保存，并列出缺少的步骤、观察点、断言、清理、
+证据或风险覆盖。`approve` 和 `scaffold` 使用同一套质量检查；未通过质量门禁的计划
+不能审批，也不能生成适配器骨架。规则冲突可以通过计划的 `review.reasons` 记录处理
+意见，或在明确使用 `--allow-ambiguous` 时由审核人承担决策责任。
+
+可部署场景的最小结构示例：
+
+```json
+{
+  "id": "register-device",
+  "mode": "write",
+  "operation": "create",
+  "target": "device",
+  "contract_id": "device-platform",
+  "evidence_refs": ["evidence-1"],
+  "steps": [
+    { "action": "submit", "transport": "api", "input_ref": "platform-cases" },
+    { "action": "observe", "transport": "observation", "observation": "resource_detail" },
+    { "action": "cleanup", "transport": "adapter", "action_ref": "delete_created_resource" }
+  ],
+  "assertions": ["accepted_matches_contract", "resource_created_matches_contract", "cleanup_completed"],
+  "coverage": { "evidence_refs": ["evidence-1"], "risk_types": ["nearby_semantic", "wrong_type", "missing"] }
+}
+```
+
+这套协议要求测试计划描述真实业务结果，而不是只描述“点击了按钮”。例如设备平台
+字段应覆盖合法系统平台、设备名称类邻近语义值、明显错误类型、缺失、规范化和重复
+提交，并在创建后查询、列表回显和清理阶段采集证据。
+
+`plan` 是外部大模型和框架之间的计划协议边界。大模型在框架外读取目标仓库，
+根据源码、接口和页面证据生成计划；框架不调用模型 API，只负责验证计划是否足够
+具体、可执行和可审计。每个重要场景应声明 `operation`、`target`、`steps`、
+`assertions`、`coverage` 和 `evidence_refs`。写入场景还必须包含清理步骤，除非明确
+声明 `creates_resources: false`。
+
+规范化后的计划会包含 `quality` 报告，至少包括 `status`、`score`、`issues` 和
+`coverage`。草稿计划即使质量不完整也会保存，并列出缺少的步骤、观察点、断言、清理、
+证据或风险覆盖。`approve` 和 `scaffold` 使用同一套质量检查；未通过质量门禁的计划
+不能审批，也不能生成适配器骨架。规则冲突可以通过计划的 `review.reasons` 记录处理
+意见，或在明确使用 `--allow-ambiguous` 时由审核人承担决策责任。
+
+可部署场景的最小结构示例：
+
+```json
+{
+  "id": "register-device",
+  "mode": "write",
+  "operation": "create",
+  "target": "device",
+  "contract_id": "device-platform",
+  "evidence_refs": ["evidence-1"],
+  "steps": [
+    { "action": "submit", "transport": "api", "input_ref": "platform-cases" },
+    { "action": "observe", "transport": "observation", "observation": "resource_detail" },
+    { "action": "cleanup", "transport": "adapter", "action_ref": "delete_created_resource" }
+  ],
+  "assertions": ["accepted_matches_contract", "resource_created_matches_contract", "cleanup_completed"],
+  "coverage": { "evidence_refs": ["evidence-1"], "risk_types": ["nearby_semantic", "wrong_type", "missing"] }
+}
+```
+
+这套协议要求测试计划描述真实业务结果，而不是只描述“点击了按钮”。例如设备平台
+字段应覆盖合法系统平台、设备名称类邻近语义值、明显错误类型、缺失、规范化和重复
+提交，并在创建后查询、列表回显和清理阶段采集证据。
 
 失败或已确认异常的案例会写入 `artifacts/<run-id>/repro/`。`case_id` 根据场景、
 输入、预期、执行序列和规则版本稳定计算，便于跨运行定位同一个案例。复现包只

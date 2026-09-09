@@ -3,6 +3,7 @@ import path from 'node:path';
 import { validateManifest } from '../manifest.js';
 import { validateModelPlan } from './model.js';
 import { planFingerprint } from './fingerprint.js';
+import { assertPlanQuality } from './quality.js';
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -14,6 +15,7 @@ export async function scaffoldFromPlanFile({ cwd = process.cwd(), inputPath, out
   const plan = JSON.parse(await fs.readFile(input, 'utf8'));
   validateModelPlan(plan);
   assertApproved(plan);
+  const quality = assertPlanQuality(plan);
   const target = path.resolve(outputDir || path.join(root, 'adapters', id));
   if (!isInside(root, target)) throw new Error('scaffold_output_invalid');
   const exists = await fs.access(target).then(() => true).catch(() => false);
@@ -30,7 +32,7 @@ export async function scaffoldFromPlanFile({ cwd = process.cwd(), inputPath, out
     'README.md': readmeTemplate(id),
   };
   for (const [name, content] of Object.entries(files)) await fs.writeFile(path.join(target, name), content, { flag: force ? 'w' : 'wx' });
-  return { ok: true, command: 'scaffold', id, directory: target, files: Object.keys(files), mode: 'skeleton', executes: false };
+  return { ok: true, command: 'scaffold', id, directory: target, files: Object.keys(files), mode: 'skeleton', executes: false, quality };
 }
 
 function assertApproved(plan) {
@@ -67,7 +69,7 @@ function sanitizeValue(value, key) {
 }
 
 function readmeTemplate(id) {
-  return `# ${id} 测试适配器骨架\n\n这是由已审核测试计划生成的通用骨架。它不会连接目标平台，也不会伪造测试通过结果。\n\n## 完成清单\n\n1. 在 adapter.js 中实现认证、路由、页面定位器和业务断言。\n2. 为每个场景补充真实操作、状态观察和资源登记。\n3. 实现清理与残留扫描，并确认测试数据前缀隔离。\n4. 先执行只读校验，再按需通过 CLI 和环境变量双重授权启用写入。\n\n生成的 Manifest 默认使用 ${envName(id)}_BASE_URL 和 ALLOW_TEST_WRITES。\n`;
+  return `# ${id} 测试适配器骨架\n\n这是由已审核且通过计划质量门禁的测试计划生成的通用骨架。它不会连接目标平台，也不会伪造测试通过结果。\n\n## 完成清单\n\n1. 按计划中的 operation、target 和 steps 实现真实 API、浏览器或 CLI 操作。\n2. 为每个场景实现 assertions 指定的业务结果观察，不要只把 HTTP 2xx 当作成功。\n3. 为创建、更新和状态转换场景登记资源并实现清理与残留扫描。\n4. 对计划中的 evidence_refs 和 coverage.risk_types 保持证据链，发现规则不确定时补充 review.reasons。\n5. 先执行只读校验，再按需通过 CLI 和环境变量双重授权启用写入。\n\n生成的 Manifest 默认使用 ${envName(id)}_BASE_URL 和 ALLOW_TEST_WRITES。\n`;
 }
 
 function envName(id) { return id.replace(/-/g, '_').toUpperCase(); }
