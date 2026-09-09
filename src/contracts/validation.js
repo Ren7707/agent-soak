@@ -14,6 +14,8 @@ export function validateContract(contract) {
   if (contract.approved !== undefined && typeof contract.approved !== 'boolean') throw new Error('contract_approved_invalid');
   if (contract.confidence !== undefined && (!Number.isFinite(contract.confidence) || contract.confidence < 0 || contract.confidence > 1)) throw new Error('contract_confidence_invalid');
   if (contract.evidence_refs !== undefined && (!Array.isArray(contract.evidence_refs) || contract.evidence_refs.some((item) => typeof item !== 'string' || !item))) throw new Error('contract_evidence_refs_invalid');
+  if (contract.evidence_summary !== undefined) validateEvidenceSummary(contract.evidence_summary);
+  if (contract.metadata_conflicts !== undefined) validateMetadataConflicts(contract.metadata_conflicts);
   if (contract.fields !== undefined && !Array.isArray(contract.fields)) throw new Error('contract_fields_must_be_array');
   if (contract.cases !== undefined && !Array.isArray(contract.cases)) throw new Error('contract_cases_must_be_array');
   if (contract.invariants !== undefined && !Array.isArray(contract.invariants)) throw new Error('contract_invariants_must_be_array');
@@ -24,9 +26,27 @@ export function validateContract(contract) {
     if (!field || typeof field !== 'object' || typeof field.path !== 'string') throw new Error('contract_field_invalid');
     if (field.semantic_type !== undefined && typeof field.semantic_type !== 'string') throw new Error('contract_field_semantic_type_invalid');
     if (field.policy !== undefined) validatePolicy(field.policy, 'contract_field_policy');
+    if (field.required !== undefined && typeof field.required !== 'boolean') throw new Error('contract_field_required_invalid');
     for (const key of ['examples', 'negative_examples']) if (field[key] !== undefined && !Array.isArray(field[key])) throw new Error(`contract_field_${key}_must_be_array`);
   }
   return contract;
+}
+
+function validateEvidenceSummary(items) {
+  if (!Array.isArray(items)) throw new Error('contract_evidence_summary_invalid');
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || typeof item.evidence_ref !== 'string' || !item.evidence_ref || typeof item.source !== 'string' || !item.source) throw new Error('contract_evidence_summary_item_invalid');
+    if (item.line !== undefined && (!Number.isInteger(item.line) || item.line < 1)) throw new Error('contract_evidence_summary_line_invalid');
+    if (item.required !== undefined && typeof item.required !== 'boolean') throw new Error('contract_evidence_summary_required_invalid');
+    if (item.description !== undefined && typeof item.description !== 'string') throw new Error('contract_evidence_summary_description_invalid');
+  }
+}
+
+function validateMetadataConflicts(items) {
+  if (!Array.isArray(items)) throw new Error('contract_metadata_conflicts_invalid');
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || !['required_status', 'description'].includes(item.kind) || !Array.isArray(item.observations)) throw new Error('contract_metadata_conflict_invalid');
+  }
 }
 
 function validatePolicy(policy, prefix) {

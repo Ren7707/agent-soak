@@ -9,6 +9,8 @@
     "field": { "type": "string", "minLength": 1 },
     "semantic_type": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
+    "evidence_summary": { "type": "array", "items": { "$ref": "#/$defs/evidenceSummary" } },
+    "metadata_conflicts": { "type": "array", "items": { "$ref": "#/$defs/metadataConflict" } },
     "policy": { "$ref": "#/$defs/policy" },
     "risk_profile": { "type": "string", "minLength": 1 },
     "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
@@ -48,6 +50,31 @@
         "negative_examples": { "type": "array" },
         "required": { "type": "boolean" },
         "policy": { "$ref": "#/$defs/policy" }
+      }
+    },
+    "evidenceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_ref", "source"],
+      "properties": {
+        "evidence_ref": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "file": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "kind": { "type": "string" },
+        "schema_kind": { "type": "string" },
+        "schema_path": { "type": "string" },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    },
+    "metadataConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "observations"],
+      "properties": {
+        "kind": { "enum": ["required_status", "description"] },
+        "observations": { "type": "array", "items": { "type": "object" } }
       }
     },
     "case": {

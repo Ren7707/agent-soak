@@ -53,6 +53,7 @@ node src/cli.js scaffold --input ./artifacts/approved-plan.json --output ./adapt
 - 规则来源冲突和语义边界歧义审查
 - 多行枚举、表单文案、校验器和接口 Schema 的来源证据识别
 - 结构化 OpenAPI / Swagger / JSON Schema 的字段级证据提取（枚举、描述、必填和 Schema 路径）
+- 候选契约的字段级证据摘要传递和元数据冲突审查
 - 带审核人、理由和时间记录的测试计划审批流程
 - 基于字段语义的邻近值、规范化、缺失和业务结果契约测试
 - 运行时请求/响应、页面、资源、断言和清理证据链
@@ -219,6 +220,11 @@ OpenAPI / Swagger / JSON Schema 文件，分析器只提取字段级最小证据
 枚举、描述摘要、是否必填、Schema 路径和行号，不输出完整 Schema、请求示例或敏感内容。
 这些标记只是证据来源分类，不代表框架已经选定产品规则；不同来源的值集合仍会进入
 `conflicts` 审查。
+
+契约合成会把来源证据中的描述、必填状态、Schema 类型、Schema 路径、文件和行号
+压缩为 `evidence_summary`，供模型和审核人复核；不会把完整源码、请求示例或证据正文
+复制到契约。若前端、后端校验器或 OpenAPI 对同一字段的必填状态或描述不一致，分析结果
+会保留各来源观察值，并以 `semantic_metadata_conflict` 标记为待审核，不会静默覆盖。
 
 `approve` 只接受由框架生成的草稿计划，并要求明确提供审核人和理由。存在未解决
 的规则冲突时默认拒绝审批；只有显式使用 `--allow-ambiguous` 才能记录为已知的

@@ -165,7 +165,7 @@ function semanticTypeForField(field) {
 function mergeCandidates(evidence) {
   const groups = new Map();
   for (const item of evidence) {
-    const candidate = groups.get(item.field) || { field: item.field, semantic_type: item.semantic_type, examples: [], evidence_refs: [], observed_value_sets: [], observed_value_set_refs: [], confidence: 0 };
+    const candidate = groups.get(item.field) || { field: item.field, semantic_type: item.semantic_type, examples: [], evidence_refs: [], observed_value_sets: [], observed_value_set_refs: [], metadata: [], confidence: 0 };
     candidate.examples.push(...item.values.filter((value) => !candidate.examples.includes(value)));
     if (item.values.length) {
       const setIndex = candidate.observed_value_sets.findIndex((values) => sameValues(values, item.values));
@@ -177,6 +177,7 @@ function mergeCandidates(evidence) {
       }
     }
     candidate.evidence_refs.push(item.id);
+    candidate.metadata.push({ evidence_ref: item.id, source: item.source, file: item.file, line: item.line, ...(item.schema_kind ? { schema_kind: item.schema_kind } : {}), ...(item.schema_path ? { schema_path: item.schema_path } : {}), ...(item.required !== undefined ? { required: item.required } : {}), ...(item.description ? { description: item.description } : {}) });
     candidate.confidence = Math.max(candidate.confidence, item.confidence);
     groups.set(item.field, candidate);
   }
@@ -184,9 +185,34 @@ function mergeCandidates(evidence) {
     const conflicts = candidate.observed_value_sets.length > 1
       ? [{ kind: 'observed_value_sets', value_sets: candidate.observed_value_sets.map((values, index) => ({ values, evidence_refs: candidate.observed_value_set_refs[index] })) }]
       : [];
-    const { observed_value_sets: _, observed_value_set_refs: __, ...publicCandidate } = candidate;
-    return { ...publicCandidate, conflicts, policy: candidate.examples.length ? { allowed_values: 'observed_or_explicit_custom' } : { allowed_values: 'unknown' } };
+    const metadataConflicts = metadataConflictsFor(candidate.metadata);
+    const { observed_value_sets: _, observed_value_set_refs: __, metadata: ___, ...publicCandidate } = candidate;
+    const descriptions = uniqueMetadataValues(candidate.metadata, 'description');
+    const requiredValues = uniqueMetadataValues(candidate.metadata, 'required');
+    return {
+      ...publicCandidate,
+      ...(descriptions.length === 1 ? { description: descriptions[0] } : {}),
+      ...(requiredValues.length === 1 ? { required: requiredValues[0] } : {}),
+      evidence_summary: candidate.metadata,
+      metadata_conflicts: metadataConflicts,
+      conflicts: [...conflicts, ...metadataConflicts],
+      policy: candidate.examples.length ? { allowed_values: 'observed_or_explicit_custom' } : { allowed_values: 'unknown' },
+    };
   });
+}
+
+function metadataConflictsFor(metadata) {
+  const conflicts = [];
+  for (const key of ['required', 'description']) {
+    const observations = metadata.filter((item) => item[key] !== undefined);
+    const values = uniqueMetadataValues(observations, key);
+    if (values.length > 1) conflicts.push({ kind: key === 'required' ? 'required_status' : 'description', observations: observations.map((item) => ({ value: item[key], evidence_refs: [item.evidence_ref], source: item.source })) });
+  }
+  return conflicts;
+}
+
+function uniqueMetadataValues(metadata, key) {
+  return [...new Set(metadata.map((item) => item[key]).filter((value) => value !== undefined && value !== ''))];
 }
 
 function sameValues(left, right) {

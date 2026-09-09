@@ -176,7 +176,28 @@ test('source analysis extracts YAML JSON Schema evidence and merges it into cand
     assert.equal(platform.source, 'openapi');
     assert.deepEqual(platform.values, ['Windows', 'macOS']);
     assert.equal(platform.required, true);
-    assert.equal(result.candidates.find((item) => item.field === 'platform').examples.includes('macOS'), true);
+    const candidate = result.candidates.find((item) => item.field === 'platform');
+    assert.equal(candidate.examples.includes('macOS'), true);
+    assert.equal(candidate.required, true);
+    assert.equal(candidate.evidence_summary[0].schema_kind, 'json_schema');
+    assert.equal(candidate.evidence_summary[0].schema_path, '$.properties.platform');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('contract synthesis preserves evidence metadata without copying source text', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-contract-metadata-'));
+  try {
+    const analysisPath = path.join(dir, 'analysis.json');
+    await fs.writeFile(analysisPath, JSON.stringify({ command: 'analyze', root: dir, files: ['openapi.json'], evidence: [{ id: 'e-1', source: 'openapi', file: 'openapi.json', line: 12, kind: 'schema_field', schema_kind: 'openapi', schema_path: '$.components.schemas.Device.properties.platform', required: true, description: '系统平台类型', snippet: 'private example should not be copied' }], candidates: [{ field: 'platform', semantic_type: 'operating_system_platform', examples: ['Linux'], evidence_refs: ['e-1'], required: true, description: '系统平台类型', evidence_summary: [{ evidence_ref: 'e-1', source: 'openapi', file: 'openapi.json', line: 12, kind: 'schema_field', schema_kind: 'openapi', schema_path: '$.components.schemas.Device.properties.platform', required: true, description: '系统平台类型' }], confidence: 0.98, policy: { allowed_values: 'known_only' } }] }));
+    const result = await synthesizeContracts({ analysisPath });
+    const contract = result.contracts[0];
+    assert.equal(contract.description, '系统平台类型');
+    assert.equal(contract.fields[0].required, true);
+    assert.equal(contract.evidence_summary[0].schema_kind, 'openapi');
+    assert.equal('snippet' in contract.evidence_summary[0], false);
+    assert.doesNotThrow(() => validateContract(contract));
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -238,6 +259,13 @@ test('rule conflict inspection keeps ambiguous boundaries reviewable', () => {
   assert.equal(result.findings[0].source_priority.find((item) => item.source === 'backend_validator').priority, 90);
   assert.equal(result.findings[0].certainty, 'review_required');
   assert.doesNotThrow(() => inspectRuleConflicts({ command: 'analyze', evidence: [], candidates: [] }));
+});
+
+test('rule conflict inspection flags required and description metadata conflicts', () => {
+  const result = inspectRuleConflicts({ command: 'analyze', evidence: [{ id: 'e-1', source: 'frontend' }, { id: 'e-2', source: 'openapi' }], candidates: [{ field: 'platform', semantic_type: 'operating_system_platform', evidence_refs: ['e-1', 'e-2'], metadata_conflicts: [{ kind: 'required_status', observations: [{ value: false, evidence_refs: ['e-1'], source: 'frontend' }, { value: true, evidence_refs: ['e-2'], source: 'openapi' }] }] }] });
+  assert.equal(result.status, 'review_required');
+  assert.equal(result.findings[0].category, 'semantic_metadata_conflict');
+  assert.equal(result.findings[0].reasons[0].kind, 'required_status');
 });
 
 test('model plans validate evidence and contract references', () => {

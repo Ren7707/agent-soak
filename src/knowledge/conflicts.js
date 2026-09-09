@@ -9,13 +9,16 @@ export function inspectRuleConflicts(analysis) {
   const evidenceById = new Map(analysis.evidence.map((item) => [item?.id, item]));
   const findings = analysis.candidates.flatMap((candidate) => {
     const valueSets = candidate.conflicts?.flatMap((conflict) => conflict.kind === 'observed_value_sets' ? conflict.value_sets || [] : []) || [];
+    const metadataConflicts = candidate.metadata_conflicts || candidate.conflicts?.filter((conflict) => ['required_status', 'description'].includes(conflict.kind)) || [];
     const sources = [...new Set((candidate.evidence_refs || []).map((id) => evidenceById.get(id)?.source || 'unknown'))];
     const policy = candidate.policy?.allowed_values;
     const reasons = [];
     if (valueSets.length > 1) reasons.push({ kind: 'allowed_value_sets', value_sets: valueSets });
     if (policy === 'observed_or_explicit_custom' && valueSets.length > 1) reasons.push({ kind: 'custom_boundary', policy });
+    if (metadataConflicts.length) reasons.push(...metadataConflicts);
     if (!reasons.length) return [];
-    return [{ field: candidate.field, semantic_type: candidate.semantic_type, status: 'review_required', category: 'semantic_boundary_ambiguous', certainty: 'review_required', sources, source_priority: sources.map((source) => ({ source, priority: SOURCE_PRIORITY[source] ?? 0 })), evidence_refs: candidate.evidence_refs || [], reasons }];
+    const category = metadataConflicts.length && valueSets.length === 0 ? 'semantic_metadata_conflict' : 'semantic_boundary_ambiguous';
+    return [{ field: candidate.field, semantic_type: candidate.semantic_type, status: 'review_required', category, certainty: 'review_required', sources, source_priority: sources.map((source) => ({ source, priority: SOURCE_PRIORITY[source] ?? 0 })), evidence_refs: candidate.evidence_refs || [], reasons }];
   });
   return redact({ ok: true, command: 'conflicts', status: findings.length ? 'review_required' : 'clear', findings });
 }
