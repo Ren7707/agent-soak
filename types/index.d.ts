@@ -1,6 +1,8 @@
 export interface PlatformManifest {
   schema_version: 1;
   ruleset_version?: string;
+  plan_file?: string;
+  conflict_report_file?: string;
   adapter: string;
   platform: {
     id: string;
@@ -144,6 +146,9 @@ export interface ModelTestPlan {
 
 export interface ReplayPackage {
   version: 1;
+  replay_protocol_version: 1;
+  replay_mode: 'historical_input';
+  environment_reproduction: 'not_guaranteed';
   runId: string;
   case_id: string;
   scenario_id: string;
@@ -152,6 +157,11 @@ export interface ReplayPackage {
   input: Record<string, unknown>;
   expected: Record<string, unknown>;
   sequence: string[];
+  contract_snapshot?: ScenarioContract | null;
+  execution_config?: Record<string, unknown>;
+  plan_fingerprint?: string | null;
+  conflict_report_fingerprint?: string | null;
+  adapter_fingerprint?: string | null;
   ruleset_version: string;
   mode: 'readonly' | 'write';
   status: string;
@@ -194,6 +204,10 @@ export interface RunResult {
   runId: string;
   mode: 'readonly' | 'write';
   ruleset_version: string;
+  plan_fingerprint: string | null;
+  conflict_report_fingerprint: string | null;
+  adapter_fingerprint: string | null;
+  replay?: ReplaySummary;
   environment: RunEnvironment;
   diagnostics: RunDiagnostics;
   rounds: number;
@@ -203,6 +217,15 @@ export interface RunResult {
   preflight: Record<string, unknown>;
   cleanup: Record<string, unknown>;
   observations: Record<string, unknown>;
+}
+
+export interface ReplaySummary {
+  mode: 'historical_input';
+  protocol_version: number | null;
+  source_run_id: string;
+  source_case_id: string;
+  environment_reproduction: 'not_guaranteed';
+  adapter_fingerprint: { historical: string | null; current: string | null; match: boolean };
 }
 
 export interface RunDiagnostics {

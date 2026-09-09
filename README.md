@@ -52,7 +52,7 @@ SHA-256，便于 CI 或 Skill 在上传、归档和复现前确认产物没有�
 - Manifest 自动校验和 YAML 支持
 - 通过 `init-adapter` 快速创建平台适配器模板
 - 从已审核模型计划生成不连接目标平台的 Adapter/Manifest 安全骨架
-- 支持规则版本、套件/标签筛选、场景优先级和历史运行差异比较
+- 支持规则版本、测试计划/冲突报告/Adapter 指纹、套件/标签筛选、场景优先级和历史运行差异比较
 - 规则来源冲突和语义边界歧义审查
 - 多行枚举、表单文案、校验器和接口 Schema 的来源证据识别
 - 结构化 OpenAPI / Swagger / JSON Schema 的字段级证据提取（枚举、描述、必填和 Schema 路径）
@@ -238,7 +238,10 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 输入、预期、执行序列和规则版本稳定计算，便于跨运行定位同一个案例。复现包只
 保存脱敏后的输入、预期、案例类型、规则版本和观测引用，不包含目标 URL、凭据或
 源码正文。`replay` 默认只读，并使用新的运行目录，不覆盖原始产物；写案例仍需
-CLI 参数和 Manifest 环境变量双重授权。指定不存在的 case ID 或不匹配的场景时，
+CLI 参数和 Manifest 环境变量双重授权。复现包带有 `replay_protocol_version`、
+`contract_snapshot`、`execution_config` 和 Adapter 指纹；结果明确标记为
+`historical_input`，表示复用历史输入和契约快照，但执行步骤、清理逻辑及目标环境
+仍来自当前 Adapter，不能等同于完全环境重现。指定不存在的 case ID 或不匹配的场景时，
 命令必须失败，不能以空运行成功。
 
 源码分析会读取有限的相邻源码行来识别跨行枚举，并根据路径和上下文标记
@@ -277,9 +280,12 @@ Manifest、契约快照、中文说明和未实现的 Adapter 占位。它不会
 
 场景可在 Manifest 中设置 `suite`、`tags` 和 `priority`，运行时使用
 `--suite` 或 `--tag` 只执行匹配场景；不指定筛选条件时行为不变。顶层
-`ruleset_version` 会随运行结果保存，便于确认规则变化。`compare` 只读取两个
-本地 `run.json`，按场景和案例比较状态，报告新增、删除、回归和修复，不会重新
-执行测试或修改产物。
+`ruleset_version` 会随运行结果保存，便于确认规则变化。Manifest 还可选设置
+`plan_file` 和 `conflict_report_file`，运行结果会记录对应的
+`plan_fingerprint`、`conflict_report_fingerprint`，并按 Adapter 文件内容记录
+`adapter_fingerprint`。引用文件缺失时对应值为 `null`，不会阻断旧 Adapter。
+`compare` 只读取两个本地 `run.json`，按场景和案例比较状态，报告新增、删除、回归和修复，
+不会重新执行测试或修改产物。
 
 ## 安全边界
 
@@ -306,7 +312,7 @@ npm run check
 
 当前项目使用 Node.js 20 或更高版本。
 
-CI 会在 Node.js 20、22 和 24 上执行测试。提交前建议运行：
+CI 会在 Node.js 20、22 和 24 上执行检查、测试、Demo 运行和产物 `verify`。Demo 或产物验证失败时，Actions 会上传报告和复现包。提交前建议运行：
 
 ```powershell
 node src/cli.js doctor --json

@@ -8,11 +8,11 @@ export function caseId({ scenarioId, testCase, rulesetVersion = 'unspecified' } 
   return `case-${createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex').slice(0, 20)}`;
 }
 
-export async function writeReplayPackage({ artifactDir, runId, scenario, testCase, rulesetVersion, mode, status, category, observationRefs = [] } = {}) {
+export async function writeReplayPackage({ artifactDir, runId, scenario, testCase, rulesetVersion, mode, status, category, observationRefs = [], contractSnapshot = null, executionConfig = {}, provenance = {} } = {}) {
   const id = testCase.case_id || caseId({ scenarioId: scenario.id, testCase, rulesetVersion });
   const directory = path.join(artifactDir, runId, 'repro');
   await fs.mkdir(directory, { recursive: true });
-  const packageValue = redact({ version: 1, runId, case_id: id, scenario_id: scenario.id, case_id_source: testCase.id || testCase.case_id_source || 'replay', kind: testCase.kind, input: testCase.input || {}, expected: testCase.expected || {}, sequence: testCase.sequence || [], ruleset_version: rulesetVersion, mode, status, category, observation_refs: observationRefs });
+  const packageValue = redact({ version: 1, replay_protocol_version: 1, replay_mode: 'historical_input', environment_reproduction: 'not_guaranteed', runId, case_id: id, scenario_id: scenario.id, case_id_source: testCase.id || testCase.case_id_source || 'replay', kind: testCase.kind, input: testCase.input || {}, expected: testCase.expected || {}, sequence: testCase.sequence || [], contract_snapshot: contractSnapshot, execution_config: executionConfig, ruleset_version: rulesetVersion, plan_fingerprint: provenance.plan_fingerprint || null, conflict_report_fingerprint: provenance.conflict_report_fingerprint || null, adapter_fingerprint: provenance.adapter_fingerprint || null, mode, status, category, observation_refs: observationRefs });
   const file = path.join(directory, `${id}.json`);
   await fs.writeFile(file, `${JSON.stringify(packageValue, null, 2)}\n`, 'utf8');
   return { case_id: id, file: file.replace(`${artifactDir}${path.sep}`, '').replaceAll('\\', '/') };

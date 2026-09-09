@@ -16,6 +16,7 @@ import { normalizeModelPlanFile, scaffoldFromPlanFile, approveModelPlanFile } fr
 import { compareRunFiles } from './reports/compare.js';
 import { loadReplayPackage } from './replay/index.js';
 import { verifyArtifactManifest } from './artifacts/index.js';
+import { resolveRunProvenance } from './provenance.js';
 
 const PACKAGE_VERSION = JSON.parse(await fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8')).version;
 const HELP = `agent-soak <command> [options]
@@ -81,10 +82,11 @@ export async function main(argv = process.argv.slice(2)) {
     if (args.command === 'inspect') return print({ ok: true, command: 'inspect', manifest }, wantsJson);
     if (args.command === 'residue' && args.remote !== true) return finish(await residue(args), wantsJson);
     const adapter = await loadAdapter(manifestPath, manifest);
+    const provenance = await resolveRunProvenance({ manifestPath, manifest });
     if (args.command === 'doctor') return finish(await doctor(manifestPath, manifest, adapter, args), wantsJson);
     if (args.command === 'discover') return finish({ ok: true, command: 'discover', ...(await adapter.discover({ manifest, baseUrl: resolveBaseUrl(manifest) })) }, wantsJson);
     if (args.command === 'validate') return finish(await validate(manifest, adapter, args), wantsJson);
-    if (args.command === 'run') return finish(await runSoak({ manifest, adapter, args, artifactDir: path.resolve(String(args.artifacts || 'artifacts')) }), wantsJson);
+    if (args.command === 'run') return finish(await runSoak({ manifest, adapter, args, provenance, artifactDir: path.resolve(String(args.artifacts || 'artifacts')) }), wantsJson);
     if (args.command === 'replay') return finish(await replay(manifest, adapter, args), wantsJson);
     if (args.command === 'cleanup') return finish(await cleanup(manifest, adapter, args), wantsJson);
     if (args.command === 'residue') return finish(await residue(args, manifest, adapter), wantsJson);
@@ -100,9 +102,10 @@ async function replay(manifest, adapter, args) {
   if (!args.caseId) throw new Error('replay_case_id_required');
   const artifactDir = path.resolve(String(args.artifacts || 'artifacts'));
   const packageValue = await loadReplayPackage({ artifactDir, runId: args.runId, caseId: args.caseId });
+  const provenance = await resolveRunProvenance({ manifestPath: manifestPathFrom(process.cwd(), String(args.manifest || 'platform.manifest.json')), manifest });
   if (args.scenario && args.scenario !== packageValue.scenario_id) throw new Error('replay_scenario_mismatch');
   const replayArgs = { ...args, command: 'run', rounds: '1', duration: undefined, scenario: packageValue.scenario_id, caseId: packageValue.case_id, replayCase: packageValue, runId: `replay-${Date.now()}` };
-  const result = await runSoak({ manifest, adapter, args: replayArgs, artifactDir });
+  const result = await runSoak({ manifest, adapter, args: replayArgs, provenance, artifactDir });
   return { ...result, replay_of: { runId: packageValue.runId, case_id: packageValue.case_id, package: packageValue.file } };
 }
 

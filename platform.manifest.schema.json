@@ -8,6 +8,8 @@
   "properties": {
     "schema_version": { "const": 1 },
     "ruleset_version": { "type": "string", "minLength": 1 },
+    "plan_file": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" },
+    "conflict_report_file": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$" },
     "adapter": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|[/\\])\\.\\.(?:[/\\]|$)).+$" },
     "platform": {
       "type": "object",

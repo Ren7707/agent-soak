@@ -410,10 +410,12 @@ test('CLI persists runtime observations and applies adapter observation results'
 test('CLI writes a redacted reproduction package and replays its historical input', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-replay-'));
   const artifactDir = path.join(cwd, 'artifacts');
-  const manifest = { schema_version: 1, ruleset_version: 'rules-1', adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'device', mode: 'readonly' }] };
+  const manifest = { schema_version: 1, ruleset_version: 'rules-1', plan_file: './plan.json', conflict_report_file: './conflicts.json', adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'device', mode: 'readonly' }] };
   const adapter = (input) => `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'device', contract: { field: 'platform', semantic_type: 'operating_system_platform', status: 'approved', approved: true, cases: [{ id: 'semantic-case', kind: 'nearby_semantic', input: { platform: '${input}' }, expected: { accepted: false } }] }, async run({ testCase }) { return { accepted: true, input: testCase.input, token: 'Bearer private-token' }; } }], async deleteResource() {} }; }`;
   try {
     await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify(manifest));
+    await fs.writeFile(path.join(cwd, 'plan.json'), JSON.stringify({ approval: { plan_fingerprint: 'a'.repeat(64) } }));
+    await fs.writeFile(path.join(cwd, 'conflicts.json'), JSON.stringify({ findings: [] }));
     await fs.writeFile(path.join(cwd, 'adapter.js'), adapter('old generator value'));
     const first = await runCli(['run', '--rounds', '1', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
     const firstBody = JSON.parse(first.stdout);
@@ -422,11 +424,20 @@ test('CLI writes a redacted reproduction package and replays its historical inpu
     assert.match(scenario.case_id, /^case-[a-f0-9]{20}$/);
     assert.ok(scenario.repro.file);
     assert.equal(firstBody.environment.platform_id, 'test');
+    assert.equal(firstBody.plan_fingerprint, 'a'.repeat(64));
+    assert.match(firstBody.conflict_report_fingerprint, /^[a-f0-9]{64}$/);
+    assert.match(firstBody.adapter_fingerprint, /^[a-f0-9]{64}$/);
     const packagePath = path.join(artifactDir, scenario.repro.file);
     const packageValue = JSON.parse(await fs.readFile(packagePath, 'utf8'));
     assert.equal(packageValue.scenario_id, 'device');
     assert.equal(packageValue.case_id, scenario.case_id);
     assert.equal(packageValue.input.platform, 'old generator value');
+    assert.equal(packageValue.replay_protocol_version, 1);
+    assert.equal(packageValue.replay_mode, 'historical_input');
+    assert.equal(packageValue.environment_reproduction, 'not_guaranteed');
+    assert.equal(packageValue.contract_snapshot.field, 'platform');
+    assert.equal(packageValue.plan_fingerprint, 'a'.repeat(64));
+    assert.match(packageValue.adapter_fingerprint, /^[a-f0-9]{64}$/);
     assert.equal(JSON.stringify(packageValue).includes('private-token'), false);
     assert.equal(JSON.stringify(packageValue).includes('Bearer'), false);
 
@@ -439,6 +450,9 @@ test('CLI writes a redacted reproduction package and replays its historical inpu
     assert.equal(replayBody.scenarios.length, 1);
     assert.equal(replayBody.scenarios[0].details.input.platform, 'old generator value');
     assert.equal(replayBody.scenarios[0].case_id, scenario.case_id);
+    assert.equal(replayBody.replay.mode, 'historical_input');
+    assert.equal(replayBody.replay.environment_reproduction, 'not_guaranteed');
+    assert.equal(replayBody.replay.adapter_fingerprint.match, false);
 
     const missing = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', 'case-00000000000000000000', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
     assert.equal(missing.code, 2);

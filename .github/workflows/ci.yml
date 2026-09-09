@@ -24,3 +24,33 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - name: Run demo and verify artifacts
+        id: demo
+        shell: bash
+        env:
+          DEMO_PLATFORM_BASE_URL: http://127.0.0.1:4317
+          ALLOW_TEST_WRITES: true
+        run: |
+          set +e
+          node examples/demo-platform/server.js > demo-platform.log 2>&1 &
+          server_pid=$!
+          for attempt in {1..50}; do
+            curl --fail --silent "$DEMO_PLATFORM_BASE_URL/health" > /dev/null && break
+            sleep 0.1
+          done
+          node src/cli.js run --rounds 1 --mode readonly --scenario health --artifacts artifacts --json
+          run_status=$?
+          run_id=$(find artifacts -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | tail -n 1)
+          if [ -n "$run_id" ]; then node src/cli.js verify --run-id "$run_id" --artifacts artifacts --json; verify_status=$?; else verify_status=1; fi
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          if [ "$run_status" -ne 0 ] || [ "$verify_status" -ne 0 ]; then exit 1; fi
+      - name: Upload failed demo artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-artifacts-node-${{ matrix.node-version }}
+          path: |
+            artifacts
+            demo-platform.log
+          if-no-files-found: ignore
