@@ -37,3 +37,17 @@ test('observer fetch records request and response without consuming the response
     await fs.rm(artifactDir, { recursive: true, force: true });
   }
 });
+
+test('runtime observer hides URL hosts by default and supports explicit full URL mode', async () => {
+  const artifactDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-url-privacy-'));
+  try {
+    const observer = new RuntimeObserver({ artifactDir, runId: 'run-path' });
+    observer.recordPage({ url: 'https://private.example.test/devices?token=secret&view=all' });
+    assert.equal(observer.events[0].data.url, '/devices?token=%5BREDACTED%5D&view=all');
+    const full = new RuntimeObserver({ artifactDir, runId: 'run-full', urlMode: 'full' });
+    full.recordPage({ url: 'https://private.example.test/devices?token=secret&view=all' });
+    assert.equal(full.events[0].data.url, 'https://private.example.test/devices?token=[REDACTED]&view=all');
+  } finally {
+    await fs.rm(artifactDir, { recursive: true, force: true });
+  }
+});

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { redact } from '../core/redact.js';
+import { redact, redactString } from '../core/redact.js';
 
 const SENSITIVE_KEY = /(authorization|access[_-]?key|api[_-]?key|cookie|credential|password|secret|token)/i;
 const MAX_STRING_LENGTH = 2000;
@@ -8,11 +8,13 @@ const MAX_ARRAY_ITEMS = 100;
 const MAX_DEPTH = 5;
 
 export class RuntimeObserver {
-  constructor({ artifactDir, runId, now = () => new Date() } = {}) {
+  constructor({ artifactDir, runId, now = () => new Date(), urlMode = 'path' } = {}) {
     if (!artifactDir || !runId) throw new Error('observation_context_required');
     this.artifactDir = artifactDir;
     this.runId = runId;
     this.now = now;
+    if (!['path', 'full'].includes(urlMode)) throw new Error('observation_url_mode_invalid');
+    this.urlMode = urlMode;
     this.sequence = 0;
     this._events = [];
   }
@@ -28,7 +30,7 @@ export class RuntimeObserver {
       timestamp: this.now().toISOString(),
       type: String(type),
       ...(scope && Object.keys(scope).length ? { scope: sanitize(scope) } : {}),
-      data: sanitize(data),
+      data: sanitize(data, '', 0, new WeakSet(), this.urlMode),
     };
     this._events.push(event);
     return event.id;
@@ -112,7 +114,7 @@ export class RuntimeObserver {
       timestamp: this.now().toISOString(),
       type: String(type),
       ...(scope && Object.keys(scope).length ? { scope: sanitize(scope) } : {}),
-      data: sanitize(data),
+      data: sanitize(data, '', 0, new WeakSet(), this.urlMode),
     };
     this._events.push(event);
     return event.id;
@@ -168,13 +170,25 @@ function bodyForObservation(body) {
   return body;
 }
 
-function sanitize(value, key = '', depth = 0, seen = new WeakSet()) {
+function sanitize(value, key = '', depth = 0, seen = new WeakSet(), urlMode = 'path') {
   if (SENSITIVE_KEY.test(key)) return '[REDACTED]';
-  if (typeof value === 'string') return redact(value).slice(0, MAX_STRING_LENGTH);
+  if (typeof value === 'string') return key.toLowerCase() === 'url' ? sanitizeUrl(value, urlMode) : redactString(value).slice(0, MAX_STRING_LENGTH);
   if (value === null || typeof value !== 'object') return value;
   if (depth >= MAX_DEPTH) return '[TRUNCATED_DEPTH]';
   if (seen.has(value)) return '[CIRCULAR]';
   seen.add(value);
-  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY_ITEMS).map((item) => sanitize(item, '', depth + 1, seen));
-  return Object.fromEntries(Object.entries(value).slice(0, MAX_ARRAY_ITEMS).map(([childKey, childValue]) => [childKey, sanitize(childValue, childKey, depth + 1, seen)]));
+  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY_ITEMS).map((item) => sanitize(item, '', depth + 1, seen, urlMode));
+  return Object.fromEntries(Object.entries(value).slice(0, MAX_ARRAY_ITEMS).map(([childKey, childValue]) => [childKey, sanitize(childValue, childKey, depth + 1, seen, urlMode)]));
+}
+
+function sanitizeUrl(value, mode) {
+  if (mode === 'full') return redactString(value, { urls: false });
+  try {
+    const url = new URL(value);
+    for (const key of [...url.searchParams.keys()]) if (/^(token|password|secret|key)$/i.test(key)) url.searchParams.set(key, '[REDACTED]');
+    const query = url.searchParams.toString();
+    return `${url.pathname || '/'}${query ? `?${query}` : ''}`;
+  } catch {
+    return redactString(value).replace(/^[a-z][a-z\d+.-]*:\/\/[^/]+/i, '');
+  }
 }

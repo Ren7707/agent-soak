@@ -142,6 +142,21 @@ test('source analysis returns evidence-bound semantic candidates', async () => {
   }
 });
 
+test('source analysis redacts private source details and avoids absolute root paths', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-privacy-'));
+  try {
+    await fs.writeFile(path.join(dir, 'device-form.tsx'), "const platformOptions = ['Windows'];\nconst owner = 'owner@example.com';\nconst api = 'https://private.example.test/api?token=secret';\nconst key = '-----BEGIN PRIVATE KEY-----secret-----END PRIVATE KEY-----';\n");
+    const result = await analyzeSource({ root: dir });
+    assert.equal(result.root, '.');
+    assert.equal(JSON.stringify(result).includes(dir), false);
+    assert.equal(JSON.stringify(result).includes('private.example.test'), false);
+    assert.equal(JSON.stringify(result).includes('owner@example.com'), false);
+    assert.equal(JSON.stringify(result).includes('BEGIN PRIVATE KEY'), false);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('source analysis captures multiline values and provenance categories', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-provenance-'));
   try {

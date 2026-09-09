@@ -17,9 +17,14 @@ export async function verifyArtifactManifest({ directory, runId } = {}) {
   const actual = new Map((await describeFiles(directory)).map((file) => [file.path, file]));
   const issues = [];
   const expected = new Set();
+  const canonicalExpected = new Map();
   for (const file of manifest.files) {
     if (!file || typeof file.path !== 'string' || !isSafeRelativePath(file.path) || !Number.isInteger(file.bytes) || file.bytes < 0 || !/^[a-f0-9]{64}$/.test(file.sha256)) { issues.push({ code: 'artifact_manifest_entry_invalid', path: file?.path }); continue; }
+    const canonicalPath = file.path.toLowerCase();
+    if (expected.has(file.path)) issues.push({ code: 'artifact_manifest_duplicate_path', path: file.path });
+    if (canonicalExpected.has(canonicalPath) && canonicalExpected.get(canonicalPath) !== file.path) issues.push({ code: 'artifact_manifest_case_collision', path: file.path, expected: canonicalExpected.get(canonicalPath) });
     expected.add(file.path);
+    canonicalExpected.set(canonicalPath, file.path);
     const observed = actual.get(file.path);
     if (!observed) { issues.push({ code: 'artifact_file_missing', path: file.path }); continue; }
     if (observed.bytes !== file.bytes) issues.push({ code: 'artifact_file_size_mismatch', path: file.path, expected: file.bytes, actual: observed.bytes });

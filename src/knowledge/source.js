@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { redact } from '../core/redact.js';
+import { redact, redactString } from '../core/redact.js';
 import { parse as parseYaml } from 'yaml';
 
 const EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue', '.svelte', '.json', '.yaml', '.yml']);
@@ -23,7 +23,7 @@ export async function analyzeSource({ root, maxFiles = 500, maxBytes = 512 * 102
     if (stat.size > maxBytes) continue;
     evidence.push(...extractEvidence(absoluteRoot, file, await fs.readFile(file, 'utf8'), fileIndex));
   }
-  const result = { ok: true, command: 'analyze', root: absoluteRoot, files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(mergeCandidates(evidence)) };
+  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(mergeCandidates(evidence)) };
   if (outputPath) {
     const target = path.resolve(outputPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -143,7 +143,7 @@ function valuesNear(lines, lineIndex, offset) {
   return bracket ? [...bracket[1].matchAll(/['"`]([^'"`\n]{1,80})['"`]/g)].map((match) => match[1]) : [];
 }
 
-function snippetNear(lines, lineIndex) { return lines.slice(lineIndex, Math.min(lines.length, lineIndex + 3)).join(' ').trim().slice(0, 300); }
+function snippetNear(lines, lineIndex) { return redactString(lines.slice(lineIndex, Math.min(lines.length, lineIndex + 3)).join(' ').trim().slice(0, 300)); }
 
 function classifySource(relative, content) {
   const value = `${relative}\n${content}`.toLowerCase();
