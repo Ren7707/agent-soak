@@ -102,17 +102,20 @@ async function runScenario(entry, context) {
     ? [context.replayCase]
     : contract ? generateContractCases(contract) : [{ id: 'baseline', kind: 'valid', input: {}, expected: {} }];
   const results = [];
+  const effectiveConfig = context.replayCase?.execution_config
+    ? normalizeExecutionConfig(context.replayCase.execution_config, entry.manifest, context.mode)
+    : executionConfig(entry.manifest, context.mode);
   for (const testCase of cases) {
     const stableId = testCase.case_id || caseId({ scenarioId: entry.implementation.id, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified' });
     if (context.caseId && stableId !== context.caseId) continue;
-    results.push(await runScenarioCase(entry, context, contract, testCase));
+    results.push(await runScenarioCase(entry, { ...context, executionConfig: effectiveConfig }, contract, testCase));
   }
   return results;
 }
 
 async function runScenarioCase(entry, context, contract, testCase) {
   const started = Date.now();
-  const retries = entry.manifest.retries || 0;
+  const retries = context.executionConfig?.retries ?? entry.manifest.retries ?? 0;
   let lastError;
   let attempts = 0;
   const observationRefs = [];
@@ -129,7 +132,7 @@ async function runScenarioCase(entry, context, contract, testCase) {
       observer.record('scenario', { phase: 'finished', status: contractResult.status, ok: contractResult.ok });
       observationRefs.push(...observer.ids);
       const result = { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, case_id: testCase.case_id || caseId({ scenarioId: entry.implementation.id, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified' }), kind: testCase.kind, round: context.round, status: contractResult.status, ok: contractResult.ok, attempts: attempt, durationMs: Date.now() - started, details, observation_refs: [...new Set(observationRefs)], ...(contract ? { contract: contractResult } : {}) };
-      if (!result.ok) result.repro = await writeReplayPackage({ artifactDir: context.artifactDir, runId: context.runId, scenario: entry.manifest, contractSnapshot: contract, executionConfig: executionConfig(entry.manifest, context.mode), testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified', mode: context.mode, status: result.status, category: result.contract?.category, observationRefs: result.observation_refs, provenance: context.provenance });
+      if (!result.ok) result.repro = await writeReplayPackage({ artifactDir: context.artifactDir, runId: context.runId, scenario: entry.manifest, contractSnapshot: contract, executionConfig: context.executionConfig, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified', mode: context.mode, status: result.status, category: result.contract?.category, observationRefs: result.observation_refs, provenance: context.provenance });
       return result;
     } catch (error) {
       lastError = error;
@@ -141,12 +144,12 @@ async function runScenarioCase(entry, context, contract, testCase) {
     }
   }
   const result = { id: entry.implementation.id, suite: entry.manifest.suite, tags: entry.manifest.tags, priority: entry.manifest.priority, caseId: testCase.id, case_id: testCase.case_id || caseId({ scenarioId: entry.implementation.id, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified' }), kind: testCase.kind, round: context.round, status: 'failed', ok: false, attempts, durationMs: Date.now() - started, category: classifyFailure(lastError), error: lastError instanceof Error ? lastError.message : String(lastError), observation_refs: [...new Set(observationRefs)] };
-  result.repro = await writeReplayPackage({ artifactDir: context.artifactDir, runId: context.runId, scenario: entry.manifest, contractSnapshot: contract, executionConfig: executionConfig(entry.manifest, context.mode), testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified', mode: context.mode, status: result.status, category: result.category, observationRefs: result.observation_refs, provenance: context.provenance });
+  result.repro = await writeReplayPackage({ artifactDir: context.artifactDir, runId: context.runId, scenario: entry.manifest, contractSnapshot: contract, executionConfig: context.executionConfig, testCase, rulesetVersion: context.manifest.ruleset_version || 'unspecified', mode: context.mode, status: result.status, category: result.category, observationRefs: result.observation_refs, provenance: context.provenance });
   return result;
 }
 
 async function runScenarioAttempt(entry, context) {
-  const timeoutMs = entry.manifest.timeout_ms;
+  const timeoutMs = context.executionConfig ? context.executionConfig.timeout_ms : entry.manifest.timeout_ms;
   const run = async (runContext) => {
     const executor = runContext.testCase?.sequence?.length > 1 && typeof entry.implementation.runSequence === 'function'
       ? entry.implementation.runSequence
@@ -205,8 +208,10 @@ function assertWriteAllowed(manifest, args, env) { if (manifest.platform.product
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
 function runResult({ ok, status, runId, mode, manifest, baseUrl, provenance = {}, replayCase, ...rest }) { return { result_schema_version: RESULT_SCHEMA_VERSION, ok, command: 'run', status, runId, mode, ruleset_version: manifest.ruleset_version || 'unspecified', plan_fingerprint: provenance.plan_fingerprint || null, conflict_report_fingerprint: provenance.conflict_report_fingerprint || null, adapter_fingerprint: provenance.adapter_fingerprint || null, environment: environmentSummary(manifest, mode, baseUrl), ...(replayCase ? { replay: replaySummary(replayCase, provenance) } : {}), diagnostics: diagnosticsFor(rest.scenarios, status), ...rest }; }
 function environmentSummary(manifest, mode, baseUrl) { return { node: process.version, platform: process.platform, arch: process.arch, mode, platform_id: manifest.platform.id, base_url_configured: Boolean(baseUrl) }; }
-function replaySummary(packageValue, provenance) { return { mode: 'historical_input', protocol_version: packageValue.replay_protocol_version || null, source_run_id: packageValue.runId, source_case_id: packageValue.case_id, environment_reproduction: 'not_guaranteed', adapter_fingerprint: { historical: packageValue.adapter_fingerprint || null, current: provenance.adapter_fingerprint || null, match: Boolean(packageValue.adapter_fingerprint && provenance.adapter_fingerprint && packageValue.adapter_fingerprint === provenance.adapter_fingerprint) } }; }
+function replaySummary(packageValue, provenance) { return { mode: packageValue.replay_mode === 'legacy' ? 'legacy' : 'historical_input', protocol_version: packageValue.replay_protocol_version, source_run_id: packageValue.runId, source_case_id: packageValue.case_id, environment_reproduction: 'not_guaranteed', execution_config_source: packageValue.execution_config ? 'historical_package' : 'current_manifest', execution_config: packageValue.execution_config || null, plan_fingerprint: fingerprintComparison(packageValue.plan_fingerprint, provenance.plan_fingerprint), conflict_report_fingerprint: fingerprintComparison(packageValue.conflict_report_fingerprint, provenance.conflict_report_fingerprint), adapter_fingerprint: fingerprintComparison(packageValue.adapter_fingerprint, provenance.adapter_fingerprint) }; }
+function fingerprintComparison(historical, current) { return { historical: historical || null, current: current || null, match: Boolean(historical && current && historical === current) }; }
 function executionConfig(scenario, mode) { return { mode, timeout_ms: scenario.timeout_ms || null, retries: scenario.retries || 0, capabilities: scenario.capabilities || [], cleanup: scenario.cleanup || null }; }
+function normalizeExecutionConfig(value, scenario, mode) { return { mode: value.mode || mode, timeout_ms: Number.isInteger(value.timeout_ms) && value.timeout_ms > 0 ? value.timeout_ms : null, retries: Number.isInteger(value.retries) && value.retries >= 0 ? value.retries : 0, capabilities: Array.isArray(value.capabilities) ? value.capabilities : scenario.capabilities || [], cleanup: value.cleanup || scenario.cleanup || null }; }
 function diagnosticsFor(scenarios = [], status) {
   const counts = { passed: 0, failed: 0, skipped: 0 };
   const categories = {};

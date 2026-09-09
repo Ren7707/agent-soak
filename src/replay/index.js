@@ -22,8 +22,11 @@ export async function loadReplayPackage({ artifactDir, runId, caseId: id } = {})
   if (!runId || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(runId)) || !id || !/^case-[a-f0-9]{20}$/.test(id)) throw new Error('replay_case_id_invalid');
   const file = path.join(path.resolve(artifactDir), runId, 'repro', `${id}.json`);
   const value = JSON.parse(await fs.readFile(file, 'utf8'));
+  const protocolVersion = value.replay_protocol_version === undefined ? 0 : value.replay_protocol_version;
   if (value.version !== 1 || value.case_id !== id || typeof value.scenario_id !== 'string') throw new Error('replay_package_invalid');
-  return { ...value, file };
+  if (![0, 1].includes(protocolVersion)) throw new Error('replay_protocol_unsupported');
+  if (protocolVersion === 1 && value.replay_mode !== 'historical_input') throw new Error('replay_package_invalid');
+  return { ...value, replay_protocol_version: protocolVersion, replay_mode: value.replay_mode || 'legacy', file };
 }
 
 function canonicalize(value) {

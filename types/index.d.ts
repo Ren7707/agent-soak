@@ -220,12 +220,22 @@ export interface RunResult {
 }
 
 export interface ReplaySummary {
-  mode: 'historical_input';
-  protocol_version: number | null;
+  mode: 'historical_input' | 'legacy';
+  protocol_version: 0 | 1;
   source_run_id: string;
   source_case_id: string;
   environment_reproduction: 'not_guaranteed';
-  adapter_fingerprint: { historical: string | null; current: string | null; match: boolean };
+  execution_config_source: 'historical_package' | 'current_manifest';
+  execution_config: Record<string, unknown> | null;
+  plan_fingerprint: FingerprintComparison;
+  conflict_report_fingerprint: FingerprintComparison;
+  adapter_fingerprint: FingerprintComparison;
+}
+
+export interface FingerprintComparison {
+  historical: string | null;
+  current: string | null;
+  match: boolean;
 }
 
 export interface RunDiagnostics {

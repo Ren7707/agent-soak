@@ -241,7 +241,9 @@ analyze 是只读的源码证据扫描命令。它只扫描明确指定的目录
 CLI 参数和 Manifest 环境变量双重授权。复现包带有 `replay_protocol_version`、
 `contract_snapshot`、`execution_config` 和 Adapter 指纹；结果明确标记为
 `historical_input`，表示复用历史输入和契约快照，但执行步骤、清理逻辑及目标环境
-仍来自当前 Adapter，不能等同于完全环境重现。指定不存在的 case ID 或不匹配的场景时，
+仍来自当前 Adapter，不能等同于完全环境重现。重放会优先采用复现包中的历史超时和
+重试配置，并比较计划、冲突报告和 Adapter 的历史/当前指纹。未知协议版本会被拒绝，
+没有协议字段的旧复现包会明确标记为 legacy。指定不存在的 case ID 或不匹配的场景时，
 命令必须失败，不能以空运行成功。
 
 源码分析会读取有限的相邻源码行来识别跨行枚举，并根据路径和上下文标记

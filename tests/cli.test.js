@@ -410,8 +410,8 @@ test('CLI persists runtime observations and applies adapter observation results'
 test('CLI writes a redacted reproduction package and replays its historical input', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-replay-'));
   const artifactDir = path.join(cwd, 'artifacts');
-  const manifest = { schema_version: 1, ruleset_version: 'rules-1', plan_file: './plan.json', conflict_report_file: './conflicts.json', adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'device', mode: 'readonly' }] };
-  const adapter = (input) => `export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'device', contract: { field: 'platform', semantic_type: 'operating_system_platform', status: 'approved', approved: true, cases: [{ id: 'semantic-case', kind: 'nearby_semantic', input: { platform: '${input}' }, expected: { accepted: false } }] }, async run({ testCase }) { return { accepted: true, input: testCase.input, token: 'Bearer private-token' }; } }], async deleteResource() {} }; }`;
+  const manifest = { schema_version: 1, ruleset_version: 'rules-1', plan_file: './plan.json', conflict_report_file: './conflicts.json', adapter: './adapter.js', platform: { id: 'test', base_url_env: 'BASE', write_gate_env: 'ALLOW', test_data_prefix: 'SOAK_' }, capabilities: ['device'], scenarios: [{ id: 'device', mode: 'readonly', retries: 1 }] };
+  const adapter = (input, failOnce = false) => `let attempts = 0; export function createAdapter() { return { async preflight() { return { ok: true }; }, async discover() { return {}; }, scenarios: [{ id: 'device', contract: { field: 'platform', semantic_type: 'operating_system_platform', status: 'approved', approved: true, cases: [{ id: 'semantic-case', kind: 'nearby_semantic', input: { platform: '${input}' }, expected: { accepted: false } }] }, async run({ testCase }) { attempts += 1; if (${failOnce} && attempts === 1) throw new Error('historical_retry_required'); if (${failOnce}) await new Promise((resolve) => setTimeout(resolve, 20)); return { accepted: true, input: testCase.input, token: 'Bearer private-token' }; } }], async deleteResource() {} }; }`;
   try {
     await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify(manifest));
     await fs.writeFile(path.join(cwd, 'plan.json'), JSON.stringify({ approval: { plan_fingerprint: 'a'.repeat(64) } }));
@@ -441,7 +441,10 @@ test('CLI writes a redacted reproduction package and replays its historical inpu
     assert.equal(JSON.stringify(packageValue).includes('private-token'), false);
     assert.equal(JSON.stringify(packageValue).includes('Bearer'), false);
 
-    await fs.writeFile(path.join(cwd, 'adapter.js'), adapter('new generator value'));
+    await fs.writeFile(path.join(cwd, 'platform.manifest.json'), JSON.stringify({ ...manifest, scenarios: [{ ...manifest.scenarios[0], retries: 0, timeout_ms: 1 }] }));
+    await fs.writeFile(path.join(cwd, 'plan.json'), JSON.stringify({ approval: { plan_fingerprint: 'b'.repeat(64) } }));
+    await fs.writeFile(path.join(cwd, 'conflicts.json'), JSON.stringify({ findings: [{ status: 'changed' }] }));
+    await fs.writeFile(path.join(cwd, 'adapter.js'), adapter('new generator value', true));
     const replay = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', scenario.case_id, '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
     const replayBody = JSON.parse(replay.stdout);
     assert.equal(replay.code, 4);
@@ -450,8 +453,13 @@ test('CLI writes a redacted reproduction package and replays its historical inpu
     assert.equal(replayBody.scenarios.length, 1);
     assert.equal(replayBody.scenarios[0].details.input.platform, 'old generator value');
     assert.equal(replayBody.scenarios[0].case_id, scenario.case_id);
+    assert.equal(replayBody.scenarios[0].attempts, 2);
     assert.equal(replayBody.replay.mode, 'historical_input');
     assert.equal(replayBody.replay.environment_reproduction, 'not_guaranteed');
+    assert.equal(replayBody.replay.execution_config_source, 'historical_package');
+    assert.equal(replayBody.replay.execution_config.retries, 1);
+    assert.equal(replayBody.replay.plan_fingerprint.match, false);
+    assert.equal(replayBody.replay.conflict_report_fingerprint.match, false);
     assert.equal(replayBody.replay.adapter_fingerprint.match, false);
 
     const missing = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', 'case-00000000000000000000', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
@@ -461,6 +469,12 @@ test('CLI writes a redacted reproduction package and replays its historical inpu
     const mismatch = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', scenario.case_id, '--scenario', 'other', '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
     assert.equal(mismatch.code, 2);
     assert.equal(JSON.parse(mismatch.stdout).detail_code, 'replay_scenario_mismatch');
+
+    packageValue.replay_protocol_version = 2;
+    await fs.writeFile(packagePath, JSON.stringify(packageValue));
+    const unsupported = await runCli(['replay', '--run-id', firstBody.runId, '--case-id', scenario.case_id, '--artifacts', artifactDir, '--json'], { cwd, env: { BASE: 'http://127.0.0.1:1' } });
+    assert.equal(unsupported.code, 2);
+    assert.equal(JSON.parse(unsupported.stdout).detail_code, 'replay_protocol_unsupported');
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }
