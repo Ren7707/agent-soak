@@ -237,6 +237,9 @@ OpenAPI / Swagger / JSON Schema 文件，分析器只提取字段级最小证据
 `src/plans` 的 `validateModelPlan` 校验证据和契约引用。框架提供
 `normalizeModelPlan` 将模型输出固定降级为 `draft`、`review_required: true`、
 `approved: false`；模型不能直接确认缺陷、授权写入或跳过现有安全门。
+计划 Schema 与运行时校验同步覆盖场景的 `capabilities`、`suite`、`tags`、`priority`
+以及审批记录；已审批计划必须包含审核人、理由、时间、冲突字段和冲突类别，避免
+产物可以被部分工具接受、却无法被后续 CI 或 Skill 校验。
 
 `scaffold` 只接受人工审核后的计划（计划和每个契约都必须是
 `status: approved`、`review_required: false`、`approved: true`），生成通用

@@ -277,6 +277,10 @@ test('model plans validate evidence and contract references', () => {
   assert.equal(normalized.contracts[0].review_required, true);
   assert.throws(() => validateModelPlan(plan, { evidenceIds: ['other'] }), /model_plan_evidence_reference_missing/);
   assert.throws(() => validateModelPlan({ ...plan, scenarios: [{ id: 'broken', contract_id: 'missing' }] }, { evidenceIds: ['e-1'] }), /model_plan_contract_missing/);
+  assert.doesNotThrow(() => validateModelPlan({ ...plan, scenarios: [{ ...plan.scenarios[0], capabilities: ['device'], suite: 'smoke', tags: ['semantic'], priority: 'high' }] }, { evidenceIds: ['e-1'] }));
+  assert.doesNotThrow(() => validateModelPlan({ ...plan, status: 'approved', review_required: false, approved: true, approval: { reviewer: 'owner', reason: '已完成审核', approved_at: '2026-09-09T00:00:00.000Z', conflict_override: false, conflict_fields: [], conflict_categories: [] } }, { evidenceIds: ['e-1'] }));
+  assert.throws(() => validateModelPlan({ ...plan, scenarios: [{ id: 'broken', priority: 'urgent' }] }, { evidenceIds: ['e-1'] }), /model_plan_scenario_priority_invalid/);
+  assert.throws(() => validateModelPlan({ ...plan, approval: { reviewer: 'owner' } }, { evidenceIds: ['e-1'] }), /model_plan_approval_reason_invalid/);
 });
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));

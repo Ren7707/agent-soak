@@ -11,6 +11,7 @@
     "review_required": { "type": "boolean" },
     "approved": { "type": "boolean" },
     "requires_write_approval": { "type": "boolean" },
+    "approval": { "$ref": "#/$defs/approval" },
     "contracts": { "type": "array", "items": { "$ref": "contract.schema.json" } },
     "scenarios": {
       "type": "array",
@@ -22,8 +23,25 @@
           "id": { "type": "string", "minLength": 1 },
           "mode": { "enum": ["readonly", "write"] },
           "contract_id": { "type": "string", "minLength": 1 },
-          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "capabilities": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "suite": { "type": "string", "minLength": 1 },
+          "tags": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "priority": { "enum": ["low", "medium", "high", "critical"] }
         }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer", "reason", "approved_at", "conflict_override", "conflict_fields", "conflict_categories"],
+      "properties": {
+        "reviewer": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "approved_at": { "type": "string", "minLength": 1 },
+        "conflict_override": { "type": "boolean" },
+        "conflict_fields": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "conflict_categories": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
       }
     }
   }

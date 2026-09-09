@@ -11,6 +11,9 @@
     "description": { "type": "string" },
     "evidence_summary": { "type": "array", "items": { "$ref": "#/$defs/evidenceSummary" } },
     "metadata_conflicts": { "type": "array", "items": { "$ref": "#/$defs/metadataConflict" } },
+    "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
+    "conflict_review": { "$ref": "#/$defs/reviewState" },
+    "semantic_review": { "type": "string" },
     "policy": { "$ref": "#/$defs/policy" },
     "risk_profile": { "type": "string", "minLength": 1 },
     "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
@@ -75,6 +78,26 @@
       "properties": {
         "kind": { "enum": ["required_status", "description"] },
         "observations": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "value_sets": { "type": "array" },
+        "observations": { "type": "array" }
+      }
+    },
+    "reviewState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "category": { "type": "string" },
+        "conflict_count": { "type": "integer", "minimum": 0 }
       }
     },
     "case": {
