@@ -40,6 +40,7 @@ export interface SemanticField {
   entity?: string;
   operations?: string[];
   routes?: string[];
+  operation_refs?: string[];
   examples?: unknown[];
   negative_examples?: unknown[];
   required?: boolean;
@@ -102,6 +103,10 @@ export interface LifecycleMachine {
 export interface ScenarioContract {
   field?: string;
   semantic_type?: string;
+  entity?: string;
+  operations?: string[];
+  routes?: string[];
+  operation_refs?: string[];
   policy?: SemanticPolicy;
   risk_profile?: string;
   fields?: SemanticField[];
@@ -125,6 +130,7 @@ export interface SourceAnalysisResult {
   files: string[];
   evidence: Array<Record<string, unknown>>;
   candidates: Array<Record<string, unknown>>;
+  coverage_requirements?: Array<{ field?: string; semantic_type?: string; entity?: string; operations?: string[]; routes?: string[]; operation_refs?: string[]; evidence_refs?: string[]; required_risks?: SemanticSampleKind[] }>;
   operations?: Array<{ id?: string; source?: string; file?: string; line?: number; method?: string; route?: string; operation?: string; entity?: string; description?: string; confidence?: number }>;
   output?: string;
 }

@@ -19,6 +19,7 @@ export async function synthesizeContracts({ analysisPath, outputPath } = {}) {
       ...(candidate.entity ? { entity: candidate.entity } : {}),
       ...(candidate.operations?.length ? { operations: candidate.operations } : {}),
       ...(candidate.routes?.length ? { routes: candidate.routes } : {}),
+      ...(candidate.operation_refs?.length ? { operation_refs: candidate.operation_refs } : {}),
       ...(candidate.description ? { description: candidate.description } : {}),
       ...(candidate.evidence_summary ? { evidence_summary: candidate.evidence_summary } : {}),
       fields: [{

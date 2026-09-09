@@ -11,6 +11,7 @@
     "entity": { "type": "string", "minLength": 1 },
     "operations": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "routes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "operation_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "description": { "type": "string" },
     "evidence_summary": { "type": "array", "items": { "$ref": "#/$defs/evidenceSummary" } },
     "metadata_conflicts": { "type": "array", "items": { "$ref": "#/$defs/metadataConflict" } },

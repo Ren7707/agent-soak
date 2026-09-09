@@ -13,6 +13,7 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
   const coveredEvidence = new Set();
   const coveredRisks = new Set();
   const requiredRisks = new Set();
+  const requiredOperations = new Map();
   const operations = new Set();
   const entities = new Set();
 
@@ -26,6 +27,10 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
   }
   for (const contract of contracts) {
     for (const risk of contract?.required_risks || []) requiredRisks.add(risk);
+    for (const operation of contract?.operations || []) {
+      if (!requiredOperations.has(operation)) requiredOperations.set(operation, new Set());
+      if (contract.entity) requiredOperations.get(operation).add(contract.entity);
+    }
     for (const ref of contract?.evidence_refs || []) if (!evidence.size || evidence.has(ref)) coveredEvidence.add(ref);
     if (contract?.id && !referencedContracts.has(contract.id)) issues.push({ code: 'contract_unreferenced', severity: 'blocking', contract_id: contract.id, message: `契约未被任何测试场景引用: ${contract.id}` });
   }
@@ -37,6 +42,12 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
   for (const ref of coveredEvidence) if (evidence.size && !evidence.has(ref)) issues.push({ code: 'evidence_reference_missing', severity: 'blocking', evidence_ref: ref, message: `计划引用了不存在的证据: ${ref}` });
   for (const risk of coveredRisks) if (!RISK_TYPES.has(risk)) issues.push({ code: 'risk_type_invalid', severity: 'blocking', risk_type: risk, message: `未知风险类型: ${risk}` });
   for (const risk of requiredRisks) if (!coveredRisks.has(risk)) issues.push({ code: 'required_risk_uncovered', severity: 'blocking', risk_type: risk, message: `源码证据要求覆盖但计划未覆盖风险类型: ${risk}` });
+  for (const [operation, entitiesForOperation] of requiredOperations) {
+    for (const entity of entitiesForOperation) {
+      const covered = scenarios.some((scenario) => scenario?.operation === operation && sameEntity(scenario.target, entity));
+      if (!covered) issues.push({ code: 'required_operation_uncovered', severity: 'blocking', operation, entity, message: `源码证据要求覆盖但计划未覆盖业务操作: ${operation} ${entity}` });
+    }
+  }
 
   const blocking = issues.some((issue) => issue.severity === 'blocking');
   const score = Math.max(0, Math.round(100 - issues.reduce((total, issue) => total + (issue.severity === 'blocking' ? 20 : 8), 0)));
@@ -50,9 +61,19 @@ export function assessPlanQuality(plan, { evidenceIds = [], conflictFindings = [
       evidence: { declared: [...evidence], covered: [...coveredEvidence], missing: [...evidence].filter((id) => !coveredEvidence.has(id)) },
       operations: [...operations],
       entities: [...entities],
+      required_operations: [...requiredOperations.entries()].flatMap(([operation, values]) => [...values].map((entity) => ({ operation, entity }))),
+      missing_operations: [...requiredOperations.entries()].flatMap(([operation, values]) => [...values].filter((entity) => !scenarios.some((scenario) => scenario?.operation === operation && sameEntity(scenario.target, entity))).map((entity) => ({ operation, entity }))),
       risks: { required: [...requiredRisks], covered: [...coveredRisks], missing: [...requiredRisks].filter((risk) => !coveredRisks.has(risk)), optional_missing: [...RISK_TYPES].filter((risk) => !coveredRisks.has(risk) && !requiredRisks.has(risk)) },
     },
   };
+}
+
+function sameEntity(left, right) {
+  if (!left || !right) return false;
+  const normalize = (value) => String(value).toLowerCase().replace(/[_\s-]+/g, '');
+  const normalizedLeft = normalize(left);
+  const normalizedRight = normalize(right);
+  return normalizedLeft === normalizedRight || normalizedLeft.replace(/s$/, '') === normalizedRight.replace(/s$/, '');
 }
 
 export function assertPlanQuality(plan, options = {}) {
@@ -72,6 +93,7 @@ function assessScenario(scenario, issues, evidence, contractIds) {
     if (step?.transport !== undefined && !TRANSPORTS.has(step.transport)) issues.push({ code: 'step_transport_invalid', severity: 'blocking', scenario_id: id, message: `场景步骤 transport 无效: ${id}` });
   }
   if (!Array.isArray(scenario.assertions) || scenario.assertions.length === 0) issues.push({ code: 'assertions_missing', severity: 'blocking', scenario_id: id, message: `场景缺少业务断言: ${id}` });
+  if (['create', 'update', 'delete', 'transition'].includes(scenario.operation) && !(scenario.steps || []).some((step) => step?.action === 'observe' || step?.transport === 'observation')) issues.push({ code: 'observation_missing', severity: 'blocking', scenario_id: id, message: `状态变更场景缺少权威结果观察步骤: ${id}` });
   const writes = scenario.mode === 'write' || ['create', 'update', 'delete', 'transition'].includes(scenario.operation);
   const createsResources = scenario.creates_resources !== false && ['create', 'update', 'transition'].includes(scenario.operation);
   const hasCleanup = (scenario.steps || []).some((step) => step?.action === 'cleanup') || scenario.creates_resources === false;

@@ -23,9 +23,9 @@ export async function analyzeSource({ root, maxFiles = 500, maxBytes = 512 * 102
     if (stat.size > maxBytes) continue;
     evidence.push(...extractEvidence(absoluteRoot, file, await fs.readFile(file, 'utf8'), fileIndex));
   }
-  const candidates = mergeCandidates(evidence);
   const operations = evidence.filter((item) => item.kind === 'operation').map(({ id, source, file, line, method, route, operation, entity, description, confidence }) => ({ id, source, file, line, method, route, operation, ...(entity ? { entity } : {}), ...(description ? { description } : {}), confidence }));
-  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(candidates), operations: redact(operations), coverage_requirements: redact(candidates.map(({ field, semantic_type, evidence_refs, required_risks }) => ({ field, semantic_type, evidence_refs, required_risks }))) };
+  const candidates = mergeCandidates(evidence, operations);
+  const result = { ok: true, command: 'analyze', root: '.', files: files.map((file) => path.relative(absoluteRoot, file).replaceAll('\\', '/')), evidence: redact(evidence), candidates: redact(candidates), operations: redact(operations), coverage_requirements: redact(candidates.map(({ field, semantic_type, entity, operations: candidateOperations, routes, operation_refs, evidence_refs, required_risks }) => ({ field, semantic_type, ...(entity ? { entity } : {}), ...(candidateOperations?.length ? { operations: candidateOperations } : {}), ...(routes?.length ? { routes } : {}), ...(operation_refs?.length ? { operation_refs } : {}), evidence_refs, required_risks }))) };
   if (outputPath) {
     const target = path.resolve(outputPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -62,7 +62,25 @@ function extractEvidence(root, file, content, fileIndex) {
       result.push({ id: `evidence-${fileIndex + 1}-${index + 1}-${occurrence}`, source, file: relative, line: index + 1, kind: values.length ? 'field_values' : 'field_reference', field, semantic_type: SEMANTIC_ALIASES[field], values, snippet: snippetNear(lines, index), confidence: values.length ? 0.9 : 0.65 });
     }
   });
-  return result;
+  return linkFieldEvidenceToNearbyOperations(result);
+}
+
+function linkFieldEvidenceToNearbyOperations(evidence) {
+  const operations = evidence.filter((item) => item.kind === 'operation' && item.entity);
+  return evidence.map((item) => {
+    if (!item.field || item.kind === 'operation') return item;
+    const nearby = operations.filter((operation) => Math.abs(operation.line - item.line) <= 40);
+    const entities = [...new Set(nearby.map((operation) => operation.entity))];
+    if (entities.length !== 1) return item;
+    const related = nearby.filter((operation) => operation.entity === entities[0]);
+    return {
+      ...item,
+      entity: entities[0],
+      operations: [...new Set(related.map((operation) => operation.operation))],
+      routes: [...new Set(related.map((operation) => operation.route))],
+      operation_refs: related.map((operation) => operation.id),
+    };
+  });
 }
 
 function extractOperationEvidence(relative, content, lines, fileIndex, source) {
@@ -153,6 +171,7 @@ function walkStructuredSchema(node, schemaPath, result, relative, lines, fileInd
           line,
           field: field.toLowerCase(),
           semantic_type: semanticType,
+          ...(entityFromSchemaPath(fieldPath) ? { entity: entityFromSchemaPath(fieldPath) } : {}),
           schema_path: `$.${fieldPath.map(String).join('.')}`,
           values,
           required: Array.isArray(node.required) && node.required.includes(field),
@@ -210,14 +229,23 @@ function semanticTypeForField(field) {
   return alias ? SEMANTIC_ALIASES[alias] : undefined;
 }
 
-function mergeCandidates(evidence) {
+function entityFromSchemaPath(schemaPath) {
+  const values = Array.isArray(schemaPath) ? schemaPath : [];
+  const schemasIndex = values.findIndex((value) => value === 'schemas');
+  const entity = schemasIndex >= 0 ? values[schemasIndex + 1] : undefined;
+  return typeof entity === 'string' && entity ? entity.replace(/s$/, '').toLowerCase() : undefined;
+}
+
+function mergeCandidates(evidence, operations = []) {
   const groups = new Map();
   for (const item of evidence) {
     if (!item.field) continue;
     const groupKey = item.field || `operation:${item.entity || 'unknown'}`;
-    const candidate = groups.get(groupKey) || { field: item.field, semantic_type: item.semantic_type, entity: item.entity, operations: [], routes: [], examples: [], evidence_refs: [], observed_value_sets: [], observed_value_set_refs: [], metadata: [], confidence: 0 };
+    const candidate = groups.get(groupKey) || { field: item.field, semantic_type: item.semantic_type, entity: item.entity, operations: [], routes: [], operation_refs: [], examples: [], evidence_refs: [], observed_value_sets: [], observed_value_set_refs: [], metadata: [], confidence: 0 };
+    if (!candidate.entity && item.entity) candidate.entity = item.entity;
     if (item.operation && !candidate.operations.includes(item.operation)) candidate.operations.push(item.operation);
     if (item.route && !candidate.routes.includes(item.route)) candidate.routes.push(item.route);
+    if (item.kind === 'operation' && !candidate.operation_refs.includes(item.id)) candidate.operation_refs.push(item.id);
     const itemValues = Array.isArray(item.values) ? item.values : [];
     candidate.examples.push(...itemValues.filter((value) => !candidate.examples.includes(value)));
     if (itemValues.length) {
@@ -234,7 +262,20 @@ function mergeCandidates(evidence) {
     candidate.confidence = Math.max(candidate.confidence, item.confidence);
     groups.set(item.field, candidate);
   }
+  const operationByEntity = new Map();
+  for (const operation of operations) {
+    if (!operation.entity) continue;
+    const list = operationByEntity.get(operation.entity) || [];
+    list.push(operation);
+    operationByEntity.set(operation.entity, list);
+  }
   return [...groups.values()].map((candidate) => {
+    const relatedOperations = candidate.entity ? operationByEntity.get(candidate.entity) || [] : [];
+    for (const operation of relatedOperations) {
+      if (!candidate.operations.includes(operation.operation)) candidate.operations.push(operation.operation);
+      if (!candidate.routes.includes(operation.route)) candidate.routes.push(operation.route);
+      if (!candidate.operation_refs.includes(operation.id)) candidate.operation_refs.push(operation.id);
+    }
     const conflicts = candidate.observed_value_sets.length > 1
       ? [{ kind: 'observed_value_sets', value_sets: candidate.observed_value_sets.map((values, index) => ({ values, evidence_refs: candidate.observed_value_set_refs[index] })) }]
       : [];
@@ -245,6 +286,7 @@ function mergeCandidates(evidence) {
     const requiredRisks = requiredRisksFor(candidate);
     return {
       ...publicCandidate,
+      ...(candidate.operation_refs.length ? { operation_refs: candidate.operation_refs } : {}),
       ...(descriptions.length === 1 ? { description: descriptions[0] } : {}),
       ...(requiredValues.length === 1 ? { required: requiredValues[0] } : {}),
       evidence_summary: candidate.metadata,

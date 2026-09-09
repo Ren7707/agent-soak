@@ -185,6 +185,23 @@ test('source analysis extracts OpenAPI path operations', async () => {
   }
 });
 
+test('source analysis links schema fields to an entity and nearby operations', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-operation-links-'));
+  try {
+    await fs.writeFile(path.join(dir, 'device.ts'), "router.post('/devices', createDevice);\nconst platformOptions = ['Windows', 'Linux'];\nrouter.get('/devices/:id', getDevice);\n");
+    const result = await analyzeSource({ root: dir });
+    const candidate = result.candidates.find((item) => item.field === 'platform');
+    assert.equal(candidate.entity, 'device');
+    assert.ok(candidate.operations.includes('create'));
+    assert.ok(candidate.operations.includes('read'));
+    assert.ok(candidate.routes.includes('/devices'));
+    assert.ok(candidate.routes.includes('/devices/:id'));
+    assert.equal(candidate.operation_refs.length, 2);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('source analysis redacts private source details and avoids absolute root paths', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-source-privacy-'));
   try {
@@ -364,6 +381,18 @@ test('plan quality blocks when evidence-derived risks are not covered', () => {
   const quality = assessPlanQuality({ version: 1, contracts: [{ id: 'device', required_risks: ['valid', 'nearby_semantic'] }], scenarios: [{ id: 'register', mode: 'readonly', operation: 'read', target: 'device', contract_id: 'device', evidence_refs: ['e-1'], creates_resources: false, steps: [{ action: 'query', transport: 'api' }], assertions: ['result_visible'], coverage: { evidence_refs: ['e-1'], risk_types: ['valid'] } }] }, { evidenceIds: ['e-1'] });
   assert.equal(quality.status, 'blocked');
   assert.ok(quality.issues.some((issue) => issue.code === 'required_risk_uncovered' && issue.risk_type === 'nearby_semantic'));
+});
+
+test('plan quality blocks when evidence-derived business operations are not covered', () => {
+  const quality = assessPlanQuality({ version: 1, contracts: [{ id: 'device', entity: 'device', operations: ['create', 'read'] }], scenarios: [{ id: 'register', mode: 'write', operation: 'create', target: 'devices', contract_id: 'device', creates_resources: false, steps: [{ action: 'submit', transport: 'api' }], assertions: ['accepted'], coverage: { risk_types: ['valid'] } }] });
+  assert.equal(quality.status, 'blocked');
+  assert.deepEqual(quality.coverage.missing_operations, [{ operation: 'read', entity: 'device' }]);
+  assert.ok(quality.issues.some((issue) => issue.code === 'required_operation_uncovered' && issue.operation === 'read'));
+});
+
+test('plan quality blocks state-changing scenarios without authoritative observation', () => {
+  const quality = assessPlanQuality({ version: 1, contracts: [{ id: 'device' }], scenarios: [{ id: 'register', mode: 'write', operation: 'create', target: 'device', contract_id: 'device', creates_resources: false, steps: [{ action: 'submit', transport: 'api' }], assertions: ['accepted'], coverage: { risk_types: ['valid'] } }] });
+  assert.ok(quality.issues.some((issue) => issue.code === 'observation_missing'));
 });
 
 test('manifest validation rejects duplicate scenario ids', () => assert.throws(() => validateManifest({ ...manifest, scenarios: [{ id: 'x', mode: 'readonly' }, { id: 'x', mode: 'write' }] }), /manifest_duplicate_or_invalid_scenario/));
