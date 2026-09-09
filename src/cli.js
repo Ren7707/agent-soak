@@ -15,6 +15,7 @@ import { RuntimeObserver } from './evidence/index.js';
 import { normalizeModelPlanFile, scaffoldFromPlanFile, approveModelPlanFile } from './plans/index.js';
 import { compareRunFiles } from './reports/compare.js';
 import { loadReplayPackage } from './replay/index.js';
+import { verifyArtifactManifest } from './artifacts/index.js';
 
 const PACKAGE_VERSION = JSON.parse(await fs.readFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package.json'), 'utf8')).version;
 const HELP = `agent-soak <command> [options]
@@ -32,6 +33,7 @@ Commands:
   scaffold                Generate a safe Adapter/Manifest skeleton from an approved plan
   approve                 Record an explicit review decision for a draft plan
   compare                 Compare two local run artifacts
+  verify                  Verify a run artifact manifest without contacting a target
   replay                  Replay one failed case from a local reproduction package
   run                     Run scenarios by round count or duration
   cleanup                 Retry cleanup for a previous run
@@ -68,6 +70,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (args.command === 'init-adapter') return finish(await initAdapter({ cwd: process.cwd(), id: args.positionals[0], force: args.force === true }), wantsJson);
     if (args.positionals.length) throw new Error(`argument_unknown: ${args.positionals[0]}`);
     if (args.command === 'compare') return print(await compareRunFiles({ baselinePath: args.baseline, currentPath: args.current }), wantsJson);
+    if (args.command === 'verify') return finish(await verify(args), wantsJson);
     if (args.command === 'analyze') return print(await analyzeSource({ root: path.resolve(String(args.source || process.cwd())), outputPath: args.output }), wantsJson);
     if (args.command === 'conflicts') return print(await inspectRuleConflictsFile({ analysisPath: args.analysis, outputPath: args.output }), wantsJson);
     if (args.command === 'contract') return print(await synthesizeContracts({ analysisPath: args.analysis, outputPath: args.output }), wantsJson);
@@ -149,8 +152,9 @@ async function runPreflight(adapter, manifest, baseUrl) { try { const result = a
 function modeFrom(args) { const mode = String(args.mode || 'readonly'); if (!['readonly', 'write'].includes(mode)) throw new Error(`mode_invalid: ${mode}`); return mode; }
 function assertWriteAllowed(manifest, args) { if (manifest.platform.production === true) throw new Error('write_rejected_production_target'); if (args.allowWrites !== true || process.env[manifest.platform.write_gate_env] !== 'true') throw new Error(`write_gate_required: use --allow-writes and ${manifest.platform.write_gate_env}=true`); }
 function safeRunId(value) { if (!value || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(String(value))) throw new Error('run_id_invalid'); return String(value); }
+async function verify(args) { const runId = safeRunId(args.runId); const artifactDir = path.resolve(String(args.artifacts || 'artifacts')); return verifyArtifactManifest({ directory: path.join(artifactDir, runId), runId }); }
 function codeFromError(error) { return (error instanceof Error ? error.message : String(error)).split(':')[0]; }
-function finish(result, json) { const code = resultCode(result); print({ ...result, ...(code ? { code } : {}) }, json); if (result.ok !== false) return EXIT_CODES.success; if (['validate', 'discover', 'doctor'].includes(result.command) || result.status === 'preflight_failed') return EXIT_CODES.preflight; if (['cleanup', 'residue'].includes(result.command)) return EXIT_CODES.cleanup; return exitCodeForResult(result); }
+function finish(result, json) { const code = resultCode(result); print({ ...result, ...(code ? { code } : {}) }, json); if (result.ok !== false) return EXIT_CODES.success; if (result.command === 'verify') return EXIT_CODES.artifact; if (['validate', 'discover', 'doctor'].includes(result.command) || result.status === 'preflight_failed') return EXIT_CODES.preflight; if (['cleanup', 'residue'].includes(result.command)) return EXIT_CODES.cleanup; return exitCodeForResult(result); }
 function parseArgs(values) { const out = { command: undefined, positionals: [] }; const booleans = new Set(['json', 'allowWrites', 'dryRun', 'supervise', 'browser', 'help', 'remote', 'force', 'version', 'allowAmbiguous']); const valueFlags = new Set(['manifest', 'mode', 'rounds', 'duration', 'interval', 'runId', 'caseId', 'scenario', 'artifacts', 'prefix', 'source', 'analysis', 'output', 'input', 'evidence', 'id', 'suite', 'tag', 'baseline', 'current', 'conflicts', 'reviewer', 'reason']); for (let index = 0; index < values.length; index += 1) { const token = values[index]; if (index === 0 && !token.startsWith('--')) { out.command = token; continue; } if (!token.startsWith('--')) { out.positionals.push(token); continue; } const [rawName, inlineValue] = token.slice(2).split('=', 2); const name = rawName.replace(/-([a-z])/g, (_, char) => char.toUpperCase()); if (booleans.has(name)) { if (inlineValue !== undefined) throw new Error(`argument_boolean_value: --${rawName}`); out[name] = true; continue; } if (!valueFlags.has(name)) throw new Error(`argument_unknown: --${rawName}`); const value = inlineValue ?? values[++index]; if (!value || value.startsWith('--')) throw new Error(`argument_value_required: --${rawName}`); out[name] = value; } return out; }
 function print(value, json) { console.log(json ? JSON.stringify(value) : JSON.stringify(value, null, 2)); return EXIT_CODES.success; }
 

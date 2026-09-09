@@ -198,6 +198,7 @@ agent-soak plan --input <模型计划> --evidence <源码证据> --output <草�
 agent-soak approve --input <草稿计划> --conflicts <冲突报告> --output <已审核计划> --reviewer <审核人> --reason <审核理由> --json
 agent-soak scaffold --input <已审核计划> --output <适配器目录> --id <平台ID> --json
 agent-soak compare --baseline <旧 run.json> --current <新 run.json> --json
+agent-soak verify --run-id <run-id> --artifacts <产物目录> --json
 agent-soak replay --run-id <原 run-id> --case-id <case-id> --json
 ```
 
@@ -214,6 +215,10 @@ agent-soak replay --run-id <原 run-id> --case-id <case-id> --json
 `diagnostics` 是不改变原始结果的确定性摘要，包含通过/失败/跳过数量、失败类别计数，
 以及每个失败案例的场景 ID、稳定 `case_id`、观测引用和复现包路径。CI 可以直接用它
 生成摘要或上传对应产物，不需要解析 Markdown、HTML 或完整观测流。
+
+`verify` 只读取 `artifact-manifest.json` 并校验运行目录中的文件是否缺失、被修改或
+异常新增。校验成功返回 `verified`；失败返回 `ARTIFACT_INVALID` 和具体文件级问题，
+退出码为 `7`，不会连接目标平台，也不会执行清理或写入业务数据。
 
 `doctor` 用于检查 Node.js、Manifest、Adapter 和基础环境变量；需要浏览器时
 可增加 `--browser` 检查 Playwright 是否可加载。

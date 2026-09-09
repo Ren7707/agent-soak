@@ -391,6 +391,17 @@ test('CLI persists runtime observations and applies adapter observation results'
     const runEntry = artifactManifest.files.find((file) => file.path === 'run.json');
     assert.equal(runEntry.bytes, runFile.byteLength);
     assert.equal(runEntry.sha256, createHash('sha256').update(runFile).digest('hex'));
+    const verified = await runCli(['verify', '--run-id', body.runId, '--artifacts', artifactDir, '--json'], { cwd });
+    const verifyBody = JSON.parse(verified.stdout);
+    assert.equal(verified.code, 0);
+    assert.equal(verifyBody.status, 'verified');
+    assert.ok(verifyBody.files_checked >= 4);
+    await fs.appendFile(path.join(artifactDir, body.runId, 'run.json'), '\n');
+    const tampered = await runCli(['verify', '--run-id', body.runId, '--artifacts', artifactDir, '--json'], { cwd });
+    const tamperedBody = JSON.parse(tampered.stdout);
+    assert.equal(tampered.code, 7);
+    assert.equal(tamperedBody.code, 'ARTIFACT_INVALID');
+    assert.ok(tamperedBody.issues.some((issue) => issue.code === 'artifact_file_hash_mismatch'));
   } finally {
     await fs.rm(cwd, { recursive: true, force: true });
   }

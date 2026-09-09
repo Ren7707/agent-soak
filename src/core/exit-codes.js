@@ -1,4 +1,4 @@
-export const EXIT_CODES = Object.freeze({ success: 0, input: 2, preflight: 3, scenario: 4, cancelled: 5, cleanup: 6 });
+export const EXIT_CODES = Object.freeze({ success: 0, input: 2, preflight: 3, scenario: 4, cancelled: 5, cleanup: 6, artifact: 7 });
 
 export const ERROR_CODES = Object.freeze({
   INPUT_INVALID: 'INPUT_INVALID',
@@ -6,6 +6,7 @@ export const ERROR_CODES = Object.freeze({
   SCENARIO_FAILED: 'SCENARIO_FAILED',
   RUN_CANCELLED: 'RUN_CANCELLED',
   CLEANUP_FAILED: 'CLEANUP_FAILED',
+  ARTIFACT_INVALID: 'ARTIFACT_INVALID',
 });
 
 export function exitCodeForResult(result) {
@@ -18,6 +19,7 @@ export function exitCodeForResult(result) {
 
 export function resultCode(result) {
   if (result.cleanup?.ok === false) return ERROR_CODES.CLEANUP_FAILED;
+  if (['artifact_integrity_failed', 'artifact_manifest_invalid', 'artifact_manifest_unreadable'].includes(result.status)) return ERROR_CODES.ARTIFACT_INVALID;
   if (result.cancelled) return ERROR_CODES.RUN_CANCELLED;
   if (result.status === 'preflight_failed') return ERROR_CODES.PREFLIGHT_FAILED;
   if (['validate', 'discover', 'doctor'].includes(result.command) && result.ok === false) return ERROR_CODES.PREFLIGHT_FAILED;

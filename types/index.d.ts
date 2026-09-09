@@ -219,6 +219,15 @@ export interface ArtifactManifest {
   files: Array<{ path: string; bytes: number; sha256: string }>;
 }
 
+export interface ArtifactVerifyResult {
+  ok: boolean;
+  command: 'verify';
+  status: 'verified' | 'artifact_integrity_failed' | 'artifact_manifest_invalid' | 'artifact_manifest_unreadable';
+  runId: string;
+  files_checked: number;
+  issues: Array<{ code: string; path?: string; expected?: number; actual?: number }>;
+}
+
 export interface RuntimeObserver {
   record(type: string, data?: Record<string, unknown>): string;
   recordRequest(data: Record<string, unknown>): string;

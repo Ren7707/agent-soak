@@ -1,7 +1,7 @@
 import { redact } from '../core/redact.js';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { writeArtifactManifest } from '../artifacts/index.js';
 
 export async function writePreflight({ artifactDir, runId, result }) {
   const dir = path.join(artifactDir, runId); await fs.mkdir(dir, { recursive: true });
@@ -19,28 +19,6 @@ export async function writeReports({ artifactDir, result }) {
   ]);
   await writeArtifactManifest(dir, safe);
   return dir;
-}
-
-async function writeArtifactManifest(directory, result) {
-  const files = [];
-  for (const file of await listFiles(directory)) {
-    if (path.basename(file) === 'artifact-manifest.json') continue;
-    const content = await fs.readFile(file);
-    files.push({ path: path.relative(directory, file).replaceAll('\\', '/'), bytes: content.byteLength, sha256: createHash('sha256').update(content).digest('hex') });
-  }
-  files.sort((left, right) => left.path.localeCompare(right.path));
-  await fs.writeFile(path.join(directory, 'artifact-manifest.json'), `${JSON.stringify({ version: 1, run_id: result.runId, result_schema_version: result.result_schema_version, files }, null, 2)}\n`, 'utf8');
-}
-
-async function listFiles(directory) {
-  const entries = await fs.readdir(directory, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await listFiles(file));
-    else if (entry.isFile()) files.push(file);
-  }
-  return files;
 }
 
 function markdown(result) {
