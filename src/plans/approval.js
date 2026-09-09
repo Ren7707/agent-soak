@@ -15,13 +15,20 @@ export async function approveModelPlanFile({ inputPath, outputPath, conflictPath
   if (plan.contracts.some((contract) => contract.status !== 'draft' || contract.review_required !== true || contract.approved !== false)) throw new Error('approval_contract_not_draft');
   const conflicts = conflictPath ? JSON.parse(await fs.readFile(path.resolve(conflictPath), 'utf8')) : undefined;
   const findings = Array.isArray(conflicts?.findings) ? conflicts.findings : [];
+  const contractConflicts = plan.contracts.flatMap((contract) => [
+    ...(Array.isArray(contract.conflicts) ? contract.conflicts : []),
+    ...(Array.isArray(contract.metadata_conflicts) ? contract.metadata_conflicts : []),
+  ]);
+  const conflictFields = [...new Set(plan.contracts.filter((contract) => contract.conflicts?.length || contract.metadata_conflicts?.length).map((contract) => contract.field).filter(Boolean))];
+  if (contractConflicts.length && !findings.length) throw new Error('approval_conflict_report_required');
   if (findings.some((finding) => finding?.status === 'review_required') && !allowAmbiguous) throw new Error('approval_conflicts_require_decision');
+  if (contractConflicts.length && findings.length && !conflictFields.every((field) => findings.some((finding) => finding.field === field))) throw new Error('approval_conflict_field_unmatched');
   const approved = {
     ...plan,
     status: 'approved',
     review_required: false,
     approved: true,
-    approval: { reviewer, reason: reason.trim(), approved_at: now, conflict_override: allowAmbiguous && findings.length > 0 },
+    approval: { reviewer, reason: reason.trim(), approved_at: now, conflict_override: allowAmbiguous && findings.length > 0, conflict_fields: conflictFields, conflict_categories: [...new Set(findings.map((finding) => finding.category).filter(Boolean))] },
     contracts: plan.contracts.map((contract) => ({ ...contract, status: 'approved', review_required: false, approved: true })),
   };
   await fs.mkdir(path.dirname(output), { recursive: true });

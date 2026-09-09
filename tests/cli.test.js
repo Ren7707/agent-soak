@@ -95,6 +95,34 @@ test('CLI approve records an auditable plan decision and blocks unresolved confl
   }
 });
 
+test('CLI approve binds embedded contract conflicts to reviewed findings', async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-approve-integrity-'));
+  try {
+    const inputPath = path.join(cwd, 'draft.json');
+    const outputPath = path.join(cwd, 'approved.json');
+    const draft = { version: 1, status: 'draft', review_required: true, approved: false, contracts: [{ id: 'device', field: 'platform', conflicts: [{ kind: 'required_status' }], metadata_conflicts: [{ kind: 'required_status', observations: [] }], status: 'draft', review_required: true, approved: false }], scenarios: [{ id: 'register-device', contract_id: 'device' }] };
+    await fs.writeFile(inputPath, JSON.stringify(draft));
+    const missing = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--reviewer', 'owner', '--reason', '已完成字段规则审核并记录依据', '--allow-ambiguous', '--json'], { cwd });
+    assert.equal(missing.code, 2);
+    assert.match(JSON.parse(missing.stdout).detail_code, /approval_conflict_report_required/);
+
+    const conflictPath = path.join(cwd, 'conflicts.json');
+    await fs.writeFile(conflictPath, JSON.stringify({ findings: [{ field: 'other', status: 'review_required', category: 'semantic_metadata_conflict' }] }));
+    const unmatched = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--conflicts', conflictPath, '--reviewer', 'owner', '--reason', '已完成字段规则审核并记录依据', '--allow-ambiguous', '--json'], { cwd });
+    assert.equal(unmatched.code, 2);
+    assert.match(JSON.parse(unmatched.stdout).detail_code, /approval_conflict_field_unmatched/);
+
+    await fs.writeFile(conflictPath, JSON.stringify({ findings: [{ field: 'platform', status: 'review_required', category: 'semantic_metadata_conflict' }] }));
+    const approved = await runCli(['approve', '--input', inputPath, '--output', outputPath, '--conflicts', conflictPath, '--reviewer', 'owner', '--reason', '已确认平台字段必填规则及其来源差异', '--allow-ambiguous', '--json'], { cwd });
+    assert.equal(approved.code, 0);
+    const saved = JSON.parse(await fs.readFile(outputPath, 'utf8'));
+    assert.deepEqual(saved.approval.conflict_fields, ['platform']);
+    assert.deepEqual(saved.approval.conflict_categories, ['semantic_metadata_conflict']);
+  } finally {
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('CLI plan normalizes a model plan and checks evidence references', async () => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-soak-cli-plan-'));
   try {

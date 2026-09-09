@@ -228,8 +228,10 @@ OpenAPI / Swagger / JSON Schema 文件，分析器只提取字段级最小证据
 
 `approve` 只接受由框架生成的草稿计划，并要求明确提供审核人和理由。存在未解决
 的规则冲突时默认拒绝审批；只有显式使用 `--allow-ambiguous` 才能记录为已知的
-冲突决策。审批结果会保存 `approval.reviewer`、`approval.reason`、
-`approval.approved_at` 和冲突覆盖标记，供后续 `scaffold` 使用。
+冲突决策。若契约自身包含冲突，审批还必须提供冲突报告，并且报告必须按字段匹配
+对应的待审核项，避免只凭计划内嵌标记或无关报告完成审批。审批结果会保存
+`approval.reviewer`、`approval.reason`、`approval.approved_at`、冲突字段、冲突类别和
+冲突覆盖标记，供后续 `scaffold` 使用。
 
 模型生成的测试计划应符合根目录的 `test-plan.schema.json`，并可通过
 `src/plans` 的 `validateModelPlan` 校验证据和契约引用。框架提供
